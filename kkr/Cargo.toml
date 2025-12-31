@@ -10,6 +10,8 @@ members = [
     "crates/tools/git",
     "crates/tools/shell",
     "crates/tools/http",
+    "crates/tools/json",
+    "crates/tools/regex",
     "crates/sdk/guardrails",
     "crates/sdk/tendencies",
     "crates/bindings/python",

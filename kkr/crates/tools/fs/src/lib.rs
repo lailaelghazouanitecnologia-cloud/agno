@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use tokio::fs;
-use tokio::io::AsyncReadExt;
 
 use kkr_core::tool::{Tool, ToolContext, ToolSchema};
 use kkr_core::Result;
@@ -51,6 +50,7 @@ impl ReadFileTool {
 struct ReadParams {
     path: String,
     #[serde(default)]
+    #[allow(dead_code)]
     encoding: Option<String>,
 }
 
@@ -252,6 +252,7 @@ impl ListDirTool {
 struct ListParams {
     path: String,
     #[serde(default)]
+    #[allow(dead_code)]
     recursive: bool,
 }
 

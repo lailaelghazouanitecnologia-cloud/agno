@@ -2,7 +2,6 @@
 //!
 //! Capsules are autonomous units that work on a specific scope.
 
-use async_trait::async_trait;
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +9,7 @@ use crate::knowledge::Knowledge;
 use crate::memory::Memory;
 use crate::pipeline::{Pipeline, PipelineContext};
 use crate::tool::{Tool, ToolContext, ToolRegistry};
-use crate::types::{Id, Message, Output, Role, Task};
+use crate::types::{Id, Message, Role};
 use crate::workspace::Scope;
 use crate::Result;
 

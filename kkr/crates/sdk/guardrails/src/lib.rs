@@ -3,7 +3,6 @@
 //! Guardrails prevent unwanted actions and enforce safety constraints.
 //! They are the "what NOT to do" rules for agents and capsules.
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 /// Result of a guardrail check

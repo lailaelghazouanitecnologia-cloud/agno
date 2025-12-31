@@ -277,7 +277,6 @@ impl Agent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use camino::Utf8PathBuf;
 
     struct MockProvider;
 

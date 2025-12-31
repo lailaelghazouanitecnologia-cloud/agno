@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::types::Id;
-use crate::Result;
 
 /// A document in the knowledge base
 #[derive(Debug, Clone, Serialize, Deserialize)]

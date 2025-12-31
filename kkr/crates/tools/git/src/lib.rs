@@ -3,7 +3,7 @@
 //! Execute git operations within repositories.
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::Stdio;

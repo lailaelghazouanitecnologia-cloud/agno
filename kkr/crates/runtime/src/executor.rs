@@ -1,6 +1,5 @@
 //! Task executor
 
-use kkr_core::{Task, Output, Result};
 
 /// Executor for running tasks
 pub struct Executor {

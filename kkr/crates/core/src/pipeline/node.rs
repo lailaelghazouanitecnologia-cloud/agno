@@ -1,30 +1,21 @@
-//! Pipeline node types (graph structure)
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Pipeline node - can be sequential, parallel, or conditional
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PipelineNode {
-    /// Single step
     Step { name: String },
-    /// Sequential execution
     Sequence(Vec<PipelineNode>),
-    /// Parallel execution
     Parallel(Vec<PipelineNode>),
-    /// Conditional execution
     Condition {
         expr: String,
         then: Box<PipelineNode>,
         else_: Option<Box<PipelineNode>>,
     },
-    /// Loop execution
     Loop {
         while_: String,
         body: Box<PipelineNode>,
         max_iterations: Option<usize>,
     },
-    /// Router - dynamic routing based on context
     Router {
         route_key: String,
         routes: HashMap<String, Box<PipelineNode>>,
@@ -33,44 +24,76 @@ pub enum PipelineNode {
 }
 
 impl PipelineNode {
-    /// Create a step node
     pub fn step(name: impl Into<String>) -> Self {
-        Self::Step { name: name.into() }
+        let name = name.into();
+        debug_assert!(!name.is_empty(), "step name must not be empty");
+        Self::Step { name }
     }
 
-    /// Create a sequence node
     pub fn sequence(nodes: Vec<PipelineNode>) -> Self {
         Self::Sequence(nodes)
     }
 
-    /// Create a parallel node
     pub fn parallel(nodes: Vec<PipelineNode>) -> Self {
+        debug_assert!(!nodes.is_empty(), "parallel requires at least one node");
         Self::Parallel(nodes)
     }
 
-    /// Create a condition node
     pub fn condition(
         expr: impl Into<String>,
         then: PipelineNode,
         else_: Option<PipelineNode>,
     ) -> Self {
+        let expr = expr.into();
+        debug_assert!(!expr.is_empty(), "condition expression must not be empty");
         Self::Condition {
-            expr: expr.into(),
+            expr,
             then: Box::new(then),
             else_: else_.map(Box::new),
         }
     }
 
-    /// Create a loop node
     pub fn loop_while(
         condition: impl Into<String>,
         body: PipelineNode,
         max_iterations: Option<usize>,
     ) -> Self {
+        let while_ = condition.into();
+        debug_assert!(!while_.is_empty(), "loop condition must not be empty");
+        debug_assert!(
+            max_iterations.map_or(true, |m| m > 0),
+            "max_iterations must be positive"
+        );
         Self::Loop {
-            while_: condition.into(),
+            while_,
             body: Box::new(body),
             max_iterations,
         }
+    }
+
+    pub fn router(
+        route_key: impl Into<String>,
+        routes: HashMap<String, PipelineNode>,
+        default: Option<PipelineNode>,
+    ) -> Self {
+        let route_key = route_key.into();
+        debug_assert!(!route_key.is_empty(), "route_key must not be empty");
+        Self::Router {
+            route_key,
+            routes: routes.into_iter().map(|(k, v)| (k, Box::new(v))).collect(),
+            default: default.map(Box::new),
+        }
+    }
+
+    pub fn is_step(&self) -> bool {
+        matches!(self, PipelineNode::Step { .. })
+    }
+
+    pub fn is_parallel(&self) -> bool {
+        matches!(self, PipelineNode::Parallel(_))
+    }
+
+    pub fn is_sequence(&self) -> bool {
+        matches!(self, PipelineNode::Sequence(_))
     }
 }

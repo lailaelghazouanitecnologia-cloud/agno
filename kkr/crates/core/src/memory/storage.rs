@@ -1,52 +1,41 @@
-//! Memory storage backends
-
 use async_trait::async_trait;
 use std::collections::VecDeque;
 
 use super::entry::MemoryEntry;
 use crate::Result;
 
-/// Storage backend for memory
+const DEFAULT_MAX_ENTRIES: usize = 1000;
+
 #[async_trait]
 pub trait MemoryStorage: Send + Sync {
-    /// Store a memory entry
     async fn store(&mut self, entry: MemoryEntry) -> Result<()>;
 
-    /// Retrieve entries by session
     async fn retrieve_by_session(
         &self,
         session_id: &str,
         limit: Option<usize>,
     ) -> Result<Vec<MemoryEntry>>;
 
-    /// Retrieve entries by user
     async fn retrieve_by_user(
         &self,
         user_id: &str,
         limit: Option<usize>,
     ) -> Result<Vec<MemoryEntry>>;
 
-    /// Retrieve all entries (with optional limit)
     async fn retrieve_all(&self, limit: Option<usize>) -> Result<Vec<MemoryEntry>>;
 
-    /// Delete entries by session
-    async fn delete_by_session(&self, session_id: &str) -> Result<usize>;
+    async fn delete_by_session(&mut self, session_id: &str) -> Result<usize>;
 
-    /// Delete entries by user
-    async fn delete_by_user(&self, user_id: &str) -> Result<usize>;
+    async fn delete_by_user(&mut self, user_id: &str) -> Result<usize>;
 
-    /// Clear all entries
     async fn clear(&mut self) -> Result<()>;
 
-    /// Count entries
     async fn count(&self) -> Result<usize>;
 
-    /// Count tokens (approximate)
     async fn count_tokens(&self) -> Result<usize>;
 }
 
-/// In-memory storage implementation
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct InMemoryStorage {
     entries: VecDeque<MemoryEntry>,
     max_entries: usize,
@@ -56,25 +45,60 @@ impl InMemoryStorage {
     pub fn new() -> Self {
         Self {
             entries: VecDeque::new(),
-            max_entries: 1000,
+            max_entries: DEFAULT_MAX_ENTRIES,
         }
     }
 
     pub fn with_max_entries(max_entries: usize) -> Self {
+        debug_assert!(max_entries > 0, "max_entries must be positive");
+
         Self {
-            entries: VecDeque::new(),
+            entries: VecDeque::with_capacity(max_entries.min(1024)),
             max_entries,
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.max_entries
+    }
+
+    fn apply_limit(entries: Vec<MemoryEntry>, limit: Option<usize>) -> Vec<MemoryEntry> {
+        match limit {
+            Some(n) if n < entries.len() => {
+                let skip_count = entries.len() - n;
+                entries.into_iter().skip(skip_count).collect()
+            }
+            _ => entries,
+        }
+    }
+}
+
+impl Default for InMemoryStorage {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 #[async_trait]
 impl MemoryStorage for InMemoryStorage {
     async fn store(&mut self, entry: MemoryEntry) -> Result<()> {
+        debug_assert!(self.max_entries > 0);
+
         self.entries.push_back(entry);
+
         while self.entries.len() > self.max_entries {
             self.entries.pop_front();
         }
+
+        debug_assert!(self.entries.len() <= self.max_entries);
         Ok(())
     }
 
@@ -83,6 +107,8 @@ impl MemoryStorage for InMemoryStorage {
         session_id: &str,
         limit: Option<usize>,
     ) -> Result<Vec<MemoryEntry>> {
+        debug_assert!(!session_id.is_empty(), "session_id must not be empty");
+
         let filtered: Vec<_> = self
             .entries
             .iter()
@@ -90,10 +116,7 @@ impl MemoryStorage for InMemoryStorage {
             .cloned()
             .collect();
 
-        Ok(match limit {
-            Some(n) => filtered.into_iter().rev().take(n).rev().collect(),
-            None => filtered,
-        })
+        Ok(Self::apply_limit(filtered, limit))
     }
 
     async fn retrieve_by_user(
@@ -101,6 +124,8 @@ impl MemoryStorage for InMemoryStorage {
         user_id: &str,
         limit: Option<usize>,
     ) -> Result<Vec<MemoryEntry>> {
+        debug_assert!(!user_id.is_empty(), "user_id must not be empty");
+
         let filtered: Vec<_> = self
             .entries
             .iter()
@@ -108,37 +133,41 @@ impl MemoryStorage for InMemoryStorage {
             .cloned()
             .collect();
 
-        Ok(match limit {
-            Some(n) => filtered.into_iter().rev().take(n).rev().collect(),
-            None => filtered,
-        })
+        Ok(Self::apply_limit(filtered, limit))
     }
 
     async fn retrieve_all(&self, limit: Option<usize>) -> Result<Vec<MemoryEntry>> {
-        Ok(match limit {
-            Some(n) => self.entries.iter().rev().take(n).rev().cloned().collect(),
-            None => self.entries.iter().cloned().collect(),
-        })
+        let all: Vec<_> = self.entries.iter().cloned().collect();
+        Ok(Self::apply_limit(all, limit))
     }
 
-    async fn delete_by_session(&self, session_id: &str) -> Result<usize> {
-        Ok(self
-            .entries
-            .iter()
-            .filter(|e| e.session_id.as_deref() == Some(session_id))
-            .count())
+    async fn delete_by_session(&mut self, session_id: &str) -> Result<usize> {
+        debug_assert!(!session_id.is_empty(), "session_id must not be empty");
+
+        let before = self.entries.len();
+        self.entries
+            .retain(|e| e.session_id.as_deref() != Some(session_id));
+        let deleted = before - self.entries.len();
+
+        debug_assert!(self.entries.len() + deleted == before);
+        Ok(deleted)
     }
 
-    async fn delete_by_user(&self, user_id: &str) -> Result<usize> {
-        Ok(self
-            .entries
-            .iter()
-            .filter(|e| e.user_id.as_deref() == Some(user_id))
-            .count())
+    async fn delete_by_user(&mut self, user_id: &str) -> Result<usize> {
+        debug_assert!(!user_id.is_empty(), "user_id must not be empty");
+
+        let before = self.entries.len();
+        self.entries
+            .retain(|e| e.user_id.as_deref() != Some(user_id));
+        let deleted = before - self.entries.len();
+
+        debug_assert!(self.entries.len() + deleted == before);
+        Ok(deleted)
     }
 
     async fn clear(&mut self) -> Result<()> {
         self.entries.clear();
+        debug_assert!(self.entries.is_empty());
         Ok(())
     }
 
@@ -147,6 +176,7 @@ impl MemoryStorage for InMemoryStorage {
     }
 
     async fn count_tokens(&self) -> Result<usize> {
-        Ok(self.entries.iter().map(|e| e.token_count).sum())
+        let total: usize = self.entries.iter().map(|e| e.token_count).sum();
+        Ok(total)
     }
 }

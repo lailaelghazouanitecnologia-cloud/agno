@@ -1,61 +1,78 @@
-//! Memory entry and configuration types
-
 use serde::{Deserialize, Serialize};
 
 use crate::types::{Id, Message};
 
-/// Memory configuration
+const DEFAULT_MAX_MESSAGES: usize = 100;
+const DEFAULT_MAX_TOKENS: usize = 8000;
+const DEFAULT_OPTIMIZATION_TARGET: usize = 20;
+const CHARS_PER_TOKEN: usize = 4;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryConfig {
-    /// Maximum number of messages to keep
     pub max_messages: usize,
-    /// Maximum tokens (approximate) - triggers optimization when exceeded
     pub max_tokens: Option<usize>,
-    /// Enable optimization strategies
     pub enable_optimization: bool,
-    /// Number of messages to keep after optimization
     pub optimization_target: usize,
+}
+
+impl MemoryConfig {
+    pub fn new(max_messages: usize, max_tokens: Option<usize>) -> Self {
+        debug_assert!(max_messages > 0, "max_messages must be positive");
+
+        Self {
+            max_messages,
+            max_tokens,
+            enable_optimization: false,
+            optimization_target: max_messages / 5,
+        }
+    }
+
+    pub fn with_optimization(mut self, target: usize) -> Self {
+        debug_assert!(
+            target < self.max_messages,
+            "optimization_target must be less than max_messages"
+        );
+
+        self.enable_optimization = true;
+        self.optimization_target = target;
+        self
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.max_messages > 0
+            && self.optimization_target <= self.max_messages
+            && self.max_tokens.map_or(true, |t| t > 0)
+    }
 }
 
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
-            max_messages: 100,
-            max_tokens: Some(8000),
+            max_messages: DEFAULT_MAX_MESSAGES,
+            max_tokens: Some(DEFAULT_MAX_TOKENS),
             enable_optimization: false,
-            optimization_target: 20,
+            optimization_target: DEFAULT_OPTIMIZATION_TARGET,
         }
     }
 }
 
-/// Memory entry with metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryEntry {
-    /// Unique ID
     pub id: Id,
-    /// The message content
     pub message: Message,
-    /// Unix timestamp
     pub timestamp: u64,
-    /// User ID (for multi-user support)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
-    /// Agent ID
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
-    /// Session ID
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
-    /// Topics/tags for this memory
     #[serde(skip_serializing_if = "Option::is_none")]
     pub topics: Option<Vec<String>>,
-    /// Additional metadata
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
-    /// Approximate token count
     #[serde(default)]
     pub token_count: usize,
-    /// Whether this is from history (previous sessions)
     #[serde(default)]
     pub from_history: bool,
 }
@@ -63,6 +80,9 @@ pub struct MemoryEntry {
 impl MemoryEntry {
     pub fn new(message: Message) -> Self {
         let token_count = estimate_tokens(&message.content);
+
+        debug_assert!(token_count > 0 || message.content.is_empty());
+
         Self {
             id: crate::new_id(),
             message,
@@ -78,35 +98,55 @@ impl MemoryEntry {
     }
 
     pub fn with_user(mut self, user_id: impl Into<String>) -> Self {
-        self.user_id = Some(user_id.into());
+        let user_id = user_id.into();
+        debug_assert!(!user_id.is_empty(), "user_id must not be empty");
+        self.user_id = Some(user_id);
         self
     }
 
     pub fn with_agent(mut self, agent_id: impl Into<String>) -> Self {
-        self.agent_id = Some(agent_id.into());
+        let agent_id = agent_id.into();
+        debug_assert!(!agent_id.is_empty(), "agent_id must not be empty");
+        self.agent_id = Some(agent_id);
         self
     }
 
     pub fn with_session(mut self, session_id: impl Into<String>) -> Self {
-        self.session_id = Some(session_id.into());
+        let session_id = session_id.into();
+        debug_assert!(!session_id.is_empty(), "session_id must not be empty");
+        self.session_id = Some(session_id);
         self
     }
 
     pub fn with_topics(mut self, topics: Vec<String>) -> Self {
+        debug_assert!(
+            topics.iter().all(|t| !t.is_empty()),
+            "topics must not contain empty strings"
+        );
         self.topics = Some(topics);
+        self
+    }
+
+    pub fn from_history(mut self) -> Self {
+        self.from_history = true;
         self
     }
 }
 
-/// Get current unix timestamp
 pub fn current_timestamp() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .expect("System time before Unix epoch")
         .as_secs()
 }
 
-/// Estimate token count for text (simple approximation: ~4 chars per token)
 pub fn estimate_tokens(text: &str) -> usize {
-    (text.len() + 3) / 4
+    if text.is_empty() {
+        return 0;
+    }
+
+    let estimate = (text.len() + CHARS_PER_TOKEN - 1) / CHARS_PER_TOKEN;
+
+    debug_assert!(estimate > 0, "Non-empty text should have at least 1 token");
+    estimate
 }

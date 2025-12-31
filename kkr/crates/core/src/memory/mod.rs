@@ -1,11 +1,3 @@
-//! Memory for agents and capsules
-//!
-//! Memory stores conversation history and persistent state with support for:
-//! - Multiple storage backends (in-memory, database)
-//! - User/agent/session separation
-//! - Optimization strategies (summarization, trimming)
-//! - Async operations
-
 mod entry;
 mod storage;
 mod strategy;
@@ -22,7 +14,6 @@ use tokio::sync::RwLock;
 use crate::types::{Message, Role};
 use crate::Result;
 
-/// Conversation memory with storage backend and optimization
 pub struct Memory {
     config: MemoryConfig,
     storage: Box<dyn MemoryStorage>,
@@ -45,7 +36,10 @@ impl Memory {
     }
 
     pub fn with_config(config: MemoryConfig) -> Self {
+        debug_assert!(config.is_valid(), "Invalid memory configuration");
+
         let storage = Box::new(InMemoryStorage::with_max_entries(config.max_messages));
+
         Self {
             config,
             storage,
@@ -67,71 +61,31 @@ impl Memory {
     }
 
     pub fn with_session(mut self, session_id: impl Into<String>) -> Self {
-        self.current_session = Some(session_id.into());
+        let session_id = session_id.into();
+        debug_assert!(!session_id.is_empty(), "session_id must not be empty");
+        self.current_session = Some(session_id);
         self
     }
 
     pub fn with_user(mut self, user_id: impl Into<String>) -> Self {
-        self.current_user = Some(user_id.into());
+        let user_id = user_id.into();
+        debug_assert!(!user_id.is_empty(), "user_id must not be empty");
+        self.current_user = Some(user_id);
         self
     }
 
-    /// Add a message to memory (sync)
     pub fn add(&mut self, message: Message) {
-        let mut entry = MemoryEntry::new(message);
-
-        if let Some(ref session) = self.current_session {
-            entry = entry.with_session(session.clone());
-        }
-        if let Some(ref user) = self.current_user {
-            entry = entry.with_user(user.clone());
-        }
-
+        let entry = self.create_entry(message);
         let _ = futures::executor::block_on(self.storage.store(entry));
     }
 
-    /// Add message (async)
-    pub async fn add_async(&mut self, message: Message) -> Result<()> {
-        let mut entry = MemoryEntry::new(message);
-
-        if let Some(ref session) = self.current_session {
-            entry = entry.with_session(session.clone());
-        }
-        if let Some(ref user) = self.current_user {
-            entry = entry.with_user(user.clone());
-        }
-
-        self.storage.store(entry).await
-    }
-
-    /// Get all messages for current session
     pub fn messages(&self) -> Vec<Message> {
-        let entries = futures::executor::block_on(async {
-            match &self.current_session {
-                Some(session) => self.storage.retrieve_by_session(session, None).await,
-                None => self.storage.retrieve_all(None).await,
-            }
-        });
-
-        entries
-            .unwrap_or_default()
-            .into_iter()
-            .map(|e| e.message)
-            .collect()
+        futures::executor::block_on(self.messages_async()).unwrap_or_default()
     }
 
-    /// Get messages (async)
-    pub async fn messages_async(&self) -> Result<Vec<Message>> {
-        let entries = match &self.current_session {
-            Some(session) => self.storage.retrieve_by_session(session, None).await?,
-            None => self.storage.retrieve_all(None).await?,
-        };
-
-        Ok(entries.into_iter().map(|e| e.message).collect())
-    }
-
-    /// Get last N messages
     pub fn last_n(&self, n: usize) -> Vec<Message> {
+        debug_assert!(n > 0, "n must be positive");
+
         let entries = futures::executor::block_on(async {
             match &self.current_session {
                 Some(session) => self.storage.retrieve_by_session(session, Some(n)).await,
@@ -146,7 +100,6 @@ impl Memory {
             .collect()
     }
 
-    /// Get messages by role
     pub fn get_by_role(&self, role: Role) -> Vec<Message> {
         self.messages()
             .into_iter()
@@ -154,7 +107,6 @@ impl Memory {
             .collect()
     }
 
-    /// Get chat history (user and assistant only)
     pub fn chat_history(&self, last_n: Option<usize>) -> Vec<Message> {
         let messages = match last_n {
             Some(n) => self.last_n(n * 2),
@@ -167,22 +119,17 @@ impl Memory {
             .collect();
 
         match last_n {
-            Some(n) => filtered.into_iter().rev().take(n).rev().collect(),
+            Some(n) => {
+                let skip = filtered.len().saturating_sub(n);
+                filtered.into_iter().skip(skip).collect()
+            }
             None => filtered,
         }
     }
 
-    /// Clear memory
     pub fn clear(&mut self) {
         let _ = futures::executor::block_on(self.storage.clear());
         self.state.clear();
-    }
-
-    /// Clear (async)
-    pub async fn clear_async(&mut self) -> Result<()> {
-        self.storage.clear().await?;
-        self.state.clear();
-        Ok(())
     }
 
     pub fn len(&self) -> usize {
@@ -195,6 +142,26 @@ impl Memory {
 
     pub fn token_count(&self) -> usize {
         futures::executor::block_on(self.storage.count_tokens()).unwrap_or(0)
+    }
+
+    pub async fn add_async(&mut self, message: Message) -> Result<()> {
+        let entry = self.create_entry(message);
+        self.storage.store(entry).await
+    }
+
+    pub async fn messages_async(&self) -> Result<Vec<Message>> {
+        let entries = match &self.current_session {
+            Some(session) => self.storage.retrieve_by_session(session, None).await?,
+            None => self.storage.retrieve_all(None).await?,
+        };
+
+        Ok(entries.into_iter().map(|e| e.message).collect())
+    }
+
+    pub async fn clear_async(&mut self) -> Result<()> {
+        self.storage.clear().await?;
+        self.state.clear();
+        Ok(())
     }
 
     pub fn needs_optimization(&self) -> bool {
@@ -222,7 +189,15 @@ impl Memory {
         };
 
         let entries = self.storage.retrieve_all(None).await?;
+        let count_before = entries.len();
+
         let optimized = strategy.optimize(entries).await?;
+        let count_after = optimized.len();
+
+        debug_assert!(
+            count_after <= count_before,
+            "Optimization should not increase entry count"
+        );
 
         self.storage.clear().await?;
         for entry in optimized {
@@ -232,20 +207,25 @@ impl Memory {
         Ok(true)
     }
 
-    // State management
     pub fn get_state<T: serde::de::DeserializeOwned>(&self, key: &str) -> Option<T> {
+        debug_assert!(!key.is_empty(), "state key must not be empty");
+
         self.state
             .get(key)
             .and_then(|v| serde_json::from_value(v.clone()).ok())
     }
 
     pub fn set_state<T: Serialize>(&mut self, key: impl Into<String>, value: T) {
+        let key = key.into();
+        debug_assert!(!key.is_empty(), "state key must not be empty");
+
         if let Ok(v) = serde_json::to_value(value) {
-            self.state.insert(key.into(), v);
+            self.state.insert(key, v);
         }
     }
 
     pub fn remove_state(&mut self, key: &str) -> Option<serde_json::Value> {
+        debug_assert!(!key.is_empty(), "state key must not be empty");
         self.state.remove(key)
     }
 
@@ -255,6 +235,7 @@ impl Memory {
 
     pub fn merge_state(&mut self, updates: HashMap<String, serde_json::Value>) {
         for (k, v) in updates {
+            debug_assert!(!k.is_empty(), "state key must not be empty");
             self.state.insert(k, v);
         }
     }
@@ -266,6 +247,19 @@ impl Memory {
     pub fn user_id(&self) -> Option<&str> {
         self.current_user.as_deref()
     }
+
+    fn create_entry(&self, message: Message) -> MemoryEntry {
+        let mut entry = MemoryEntry::new(message);
+
+        if let Some(ref session) = self.current_session {
+            entry = entry.with_session(session.clone());
+        }
+        if let Some(ref user) = self.current_user {
+            entry = entry.with_user(user.clone());
+        }
+
+        entry
+    }
 }
 
 impl Default for Memory {
@@ -274,7 +268,6 @@ impl Default for Memory {
     }
 }
 
-/// Thread-safe memory wrapper
 #[derive(Clone)]
 pub struct SharedMemory {
     inner: Arc<RwLock<Memory>>,
@@ -311,6 +304,10 @@ impl SharedMemory {
     pub async fn len(&self) -> usize {
         let memory = self.inner.read().await;
         memory.len()
+    }
+
+    pub async fn is_empty(&self) -> bool {
+        self.len().await == 0
     }
 }
 

@@ -1,40 +1,47 @@
-//! Pipeline events for streaming
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::step::StepOutput;
 use crate::types::{Id, Status};
 
-/// Events emitted during pipeline execution
 #[derive(Debug, Clone)]
 pub enum PipelineEvent {
-    /// Pipeline started
     Started {
         pipeline_id: Id,
         pipeline_name: String,
     },
-    /// Step started
     StepStarted {
         step_name: String,
         step_index: usize,
     },
-    /// Step completed
     StepCompleted {
         step_name: String,
         output: StepOutput,
     },
-    /// Parallel execution started
-    ParallelStarted { step_count: usize },
-    /// Parallel execution completed
-    ParallelCompleted { outputs: Vec<StepOutput> },
-    /// Pipeline completed
-    Completed { result: PipelineResult },
-    /// Error occurred
-    Error { message: String },
+    ParallelStarted {
+        step_count: usize,
+    },
+    ParallelCompleted {
+        outputs: Vec<StepOutput>,
+    },
+    Completed {
+        result: PipelineResult,
+    },
+    Error {
+        message: String,
+    },
 }
 
-/// Pipeline execution result
+impl PipelineEvent {
+    pub fn is_completed(&self) -> bool {
+        matches!(self, PipelineEvent::Completed { .. })
+    }
+
+    pub fn is_error(&self) -> bool {
+        matches!(self, PipelineEvent::Error { .. })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineResult {
     pub id: Id,
@@ -45,7 +52,16 @@ pub struct PipelineResult {
     pub metrics: PipelineMetrics,
 }
 
-/// Aggregate metrics for pipeline
+impl PipelineResult {
+    pub fn is_success(&self) -> bool {
+        self.status == Status::Completed && self.error.is_none()
+    }
+
+    pub fn is_failed(&self) -> bool {
+        self.status == Status::Failed
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PipelineMetrics {
     pub total_duration_ms: u64,

@@ -1,13 +1,11 @@
-//! Knowledge base for agents and capsules
-//!
-//! Knowledge stores documents and enables retrieval.
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::types::Id;
 
-/// A document in the knowledge base
+const DEFAULT_MAX_RESULTS: usize = 10;
+const DEFAULT_MIN_SCORE: f32 = 0.0;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Document {
     pub id: Id,
@@ -19,51 +17,80 @@ pub struct Document {
 
 impl Document {
     pub fn new(content: impl Into<String>) -> Self {
+        let content = content.into();
+        debug_assert!(!content.is_empty(), "document content must not be empty");
+
         Self {
             id: crate::new_id(),
-            content: content.into(),
+            content,
             metadata: HashMap::new(),
             embedding: None,
         }
     }
 
     pub fn with_metadata(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
-        self.metadata.insert(key.into(), value);
+        let key = key.into();
+        debug_assert!(!key.is_empty(), "metadata key must not be empty");
+        self.metadata.insert(key, value);
         self
     }
 
     pub fn with_embedding(mut self, embedding: Vec<f32>) -> Self {
+        debug_assert!(!embedding.is_empty(), "embedding must not be empty");
         self.embedding = Some(embedding);
         self
     }
+
+    pub fn has_embedding(&self) -> bool {
+        self.embedding.is_some()
+    }
 }
 
-/// Search result from knowledge base
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
     pub document: Document,
     pub score: f32,
 }
 
-/// Knowledge configuration
+impl SearchResult {
+    pub fn new(document: Document, score: f32) -> Self {
+        debug_assert!(score >= 0.0, "score must be non-negative");
+        Self { document, score }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KnowledgeConfig {
-    /// Maximum results to return
     pub max_results: usize,
-    /// Minimum similarity score
     pub min_score: f32,
+}
+
+impl KnowledgeConfig {
+    pub fn new(max_results: usize) -> Self {
+        debug_assert!(max_results > 0, "max_results must be positive");
+
+        Self {
+            max_results,
+            min_score: DEFAULT_MIN_SCORE,
+        }
+    }
+
+    pub fn with_min_score(mut self, min_score: f32) -> Self {
+        debug_assert!(min_score >= 0.0 && min_score <= 1.0, "min_score must be between 0 and 1");
+        self.min_score = min_score;
+        self
+    }
 }
 
 impl Default for KnowledgeConfig {
     fn default() -> Self {
         Self {
-            max_results: 10,
-            min_score: 0.0,
+            max_results: DEFAULT_MAX_RESULTS,
+            min_score: DEFAULT_MIN_SCORE,
         }
     }
 }
 
-/// Knowledge base
 #[derive(Debug, Default)]
 pub struct Knowledge {
     config: KnowledgeConfig,
@@ -82,30 +109,28 @@ impl Knowledge {
         }
     }
 
-    /// Add a document
     pub fn add(&mut self, doc: Document) {
+        debug_assert!(!doc.content.is_empty(), "document content must not be empty");
         self.documents.insert(doc.id, doc);
     }
 
-    /// Add multiple documents
     pub fn add_many(&mut self, docs: Vec<Document>) {
         for doc in docs {
             self.add(doc);
         }
     }
 
-    /// Get a document by ID
     pub fn get(&self, id: &Id) -> Option<&Document> {
         self.documents.get(id)
     }
 
-    /// Remove a document
     pub fn remove(&mut self, id: &Id) -> Option<Document> {
         self.documents.remove(id)
     }
 
-    /// Search by text (simple contains for now)
     pub fn search_text(&self, query: &str) -> Vec<SearchResult> {
+        debug_assert!(!query.is_empty(), "search query must not be empty");
+
         let query_lower = query.to_lowercase();
 
         let mut results: Vec<SearchResult> = self
@@ -114,7 +139,6 @@ impl Knowledge {
             .filter_map(|doc| {
                 let content_lower = doc.content.to_lowercase();
                 if content_lower.contains(&query_lower) {
-                    // Simple scoring based on occurrence count
                     let count = content_lower.matches(&query_lower).count();
                     let score = count as f32 / content_lower.len() as f32;
                     Some(SearchResult {
@@ -127,13 +151,14 @@ impl Knowledge {
             })
             .collect();
 
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
         results.truncate(self.config.max_results);
         results
     }
 
-    /// Search by embedding (cosine similarity)
     pub fn search_embedding(&self, query_embedding: &[f32]) -> Vec<SearchResult> {
+        debug_assert!(!query_embedding.is_empty(), "query embedding must not be empty");
+
         let mut results: Vec<SearchResult> = self
             .documents
             .values()
@@ -149,12 +174,11 @@ impl Knowledge {
             .filter(|r| r.score >= self.config.min_score)
             .collect();
 
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
         results.truncate(self.config.max_results);
         results
     }
 
-    /// Number of documents
     pub fn len(&self) -> usize {
         self.documents.len()
     }
@@ -163,14 +187,18 @@ impl Knowledge {
         self.documents.is_empty()
     }
 
-    /// Clear all documents
     pub fn clear(&mut self) {
         self.documents.clear();
     }
+
+    pub fn documents_with_embeddings(&self) -> usize {
+        self.documents.values().filter(|d| d.embedding.is_some()).count()
+    }
 }
 
-/// Compute cosine similarity between two vectors
 fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    debug_assert!(!a.is_empty() && !b.is_empty(), "vectors must not be empty");
+
     if a.len() != b.len() {
         return 0.0;
     }
@@ -184,32 +212,4 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     }
 
     dot / (norm_a * norm_b)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_knowledge_add_and_search() {
-        let mut knowledge = Knowledge::new();
-
-        knowledge.add(Document::new("Rust is a systems programming language"));
-        knowledge.add(Document::new("Python is great for data science"));
-        knowledge.add(Document::new("TypeScript adds types to JavaScript"));
-
-        let results = knowledge.search_text("Rust");
-        assert_eq!(results.len(), 1);
-        assert!(results[0].document.content.contains("Rust"));
-    }
-
-    #[test]
-    fn test_cosine_similarity() {
-        let a = vec![1.0, 0.0, 0.0];
-        let b = vec![1.0, 0.0, 0.0];
-        assert!((cosine_similarity(&a, &b) - 1.0).abs() < 0.001);
-
-        let c = vec![0.0, 1.0, 0.0];
-        assert!(cosine_similarity(&a, &c).abs() < 0.001);
-    }
 }

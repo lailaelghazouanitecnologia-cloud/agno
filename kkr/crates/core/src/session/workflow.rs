@@ -1,12 +1,9 @@
-//! Workflow session management
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::run::current_timestamp;
 use crate::types::Status;
 
-/// Session for a workflow interaction
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowSession {
     pub session_id: String,
@@ -23,9 +20,12 @@ pub struct WorkflowSession {
 
 impl WorkflowSession {
     pub fn new(session_id: impl Into<String>) -> Self {
+        let session_id = session_id.into();
+        debug_assert!(!session_id.is_empty(), "session_id must not be empty");
+
         let now = current_timestamp();
         Self {
-            session_id: session_id.into(),
+            session_id,
             user_id: None,
             workflow_id: None,
             workflow_name: None,
@@ -39,17 +39,23 @@ impl WorkflowSession {
     }
 
     pub fn with_workflow(mut self, workflow_id: impl Into<String>, name: Option<String>) -> Self {
-        self.workflow_id = Some(workflow_id.into());
+        let workflow_id = workflow_id.into();
+        debug_assert!(!workflow_id.is_empty(), "workflow_id must not be empty");
+        self.workflow_id = Some(workflow_id);
         self.workflow_name = name;
         self
     }
 
     pub fn with_user(mut self, user_id: impl Into<String>) -> Self {
-        self.user_id = Some(user_id.into());
+        let user_id = user_id.into();
+        debug_assert!(!user_id.is_empty(), "user_id must not be empty");
+        self.user_id = Some(user_id);
         self
     }
 
     pub fn upsert_run(&mut self, run: WorkflowRunOutput) {
+        debug_assert!(!run.run_id.is_empty(), "run_id must not be empty");
+
         self.updated_at = current_timestamp();
 
         if let Some(idx) = self.runs.iter().position(|r| r.run_id == run.run_id) {
@@ -60,6 +66,7 @@ impl WorkflowSession {
     }
 
     pub fn get_run(&self, run_id: &str) -> Option<&WorkflowRunOutput> {
+        debug_assert!(!run_id.is_empty(), "run_id must not be empty");
         self.runs.iter().find(|r| r.run_id == run_id)
     }
 
@@ -71,7 +78,10 @@ impl WorkflowSession {
             .collect();
 
         let runs_to_process = match num_runs {
-            Some(n) => completed.into_iter().rev().take(n).rev().collect::<Vec<_>>(),
+            Some(n) => {
+                debug_assert!(n > 0, "num_runs must be positive");
+                completed.into_iter().rev().take(n).rev().collect::<Vec<_>>()
+            }
             None => completed,
         };
 
@@ -101,9 +111,38 @@ impl WorkflowSession {
 
         Some(context)
     }
+
+    pub fn run_count(&self) -> usize {
+        self.runs.len()
+    }
+
+    pub fn completed_run_count(&self) -> usize {
+        self.runs.iter().filter(|r| r.status == Status::Completed).count()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.runs.is_empty()
+    }
+
+    pub fn set_state<T: serde::Serialize>(&mut self, key: impl Into<String>, value: T) {
+        let key = key.into();
+        debug_assert!(!key.is_empty(), "state key must not be empty");
+
+        if let Ok(v) = serde_json::to_value(value) {
+            self.session_data.insert(key, v);
+            self.updated_at = current_timestamp();
+        }
+    }
+
+    pub fn get_state<T: serde::de::DeserializeOwned>(&self, key: &str) -> Option<T> {
+        debug_assert!(!key.is_empty(), "state key must not be empty");
+
+        self.session_data
+            .get(key)
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+    }
 }
 
-/// Output from a workflow run
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowRunOutput {
     pub run_id: String,
@@ -120,8 +159,11 @@ pub struct WorkflowRunOutput {
 
 impl WorkflowRunOutput {
     pub fn new(run_id: impl Into<String>) -> Self {
+        let run_id = run_id.into();
+        debug_assert!(!run_id.is_empty(), "run_id must not be empty");
+
         Self {
-            run_id: run_id.into(),
+            run_id,
             workflow_id: None,
             status: Status::Running,
             input: None,
@@ -135,7 +177,14 @@ impl WorkflowRunOutput {
     }
 
     pub fn with_workflow(mut self, workflow_id: impl Into<String>) -> Self {
-        self.workflow_id = Some(workflow_id.into());
+        let workflow_id = workflow_id.into();
+        debug_assert!(!workflow_id.is_empty(), "workflow_id must not be empty");
+        self.workflow_id = Some(workflow_id);
+        self
+    }
+
+    pub fn with_input(mut self, input: impl Into<String>) -> Self {
+        self.input = Some(input.into());
         self
     }
 
@@ -152,9 +201,32 @@ impl WorkflowRunOutput {
         self.completed_at = Some(current_timestamp());
         self
     }
+
+    pub fn add_step(&mut self, step: StepOutput) {
+        debug_assert!(!step.step_id.is_empty(), "step_id must not be empty");
+        self.steps.push(step);
+    }
+
+    pub fn is_completed(&self) -> bool {
+        self.status == Status::Completed
+    }
+
+    pub fn is_failed(&self) -> bool {
+        self.status == Status::Failed
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.status == Status::Running
+    }
+
+    pub fn duration_ms(&self) -> Option<u64> {
+        self.completed_at.map(|end| {
+            debug_assert!(end >= self.started_at, "end time must be after start time");
+            (end - self.started_at) * 1000
+        })
+    }
 }
 
-/// Step output in a workflow
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepOutput {
     pub step_name: String,
@@ -165,11 +237,57 @@ pub struct StepOutput {
     pub duration_ms: u64,
 }
 
-/// Workflow metrics
+impl StepOutput {
+    pub fn new(step_name: impl Into<String>, step_id: impl Into<String>) -> Self {
+        let step_name = step_name.into();
+        let step_id = step_id.into();
+        debug_assert!(!step_name.is_empty(), "step_name must not be empty");
+        debug_assert!(!step_id.is_empty(), "step_id must not be empty");
+
+        Self {
+            step_name,
+            step_id,
+            content: None,
+            success: true,
+            error: None,
+            duration_ms: 0,
+        }
+    }
+
+    pub fn with_content(mut self, content: impl Into<String>) -> Self {
+        self.content = Some(content.into());
+        self
+    }
+
+    pub fn with_error(mut self, error: impl Into<String>) -> Self {
+        self.error = Some(error.into());
+        self.success = false;
+        self
+    }
+
+    pub fn with_duration(mut self, duration_ms: u64) -> Self {
+        self.duration_ms = duration_ms;
+        self
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WorkflowMetrics {
     pub total_duration_ms: u64,
     pub steps_executed: usize,
     pub steps_failed: usize,
     pub total_tokens: u32,
+}
+
+impl WorkflowMetrics {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_steps(mut self, executed: usize, failed: usize) -> Self {
+        debug_assert!(failed <= executed, "failed count cannot exceed executed count");
+        self.steps_executed = executed;
+        self.steps_failed = failed;
+        self
+    }
 }

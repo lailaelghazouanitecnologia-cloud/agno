@@ -1,10 +1,7 @@
-//! Run output and related types
-
 use serde::{Deserialize, Serialize};
 
 use crate::types::{Message, Status};
 
-/// Output from a single run
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunOutput {
     pub run_id: String,
@@ -24,8 +21,11 @@ pub struct RunOutput {
 
 impl RunOutput {
     pub fn new(run_id: impl Into<String>) -> Self {
+        let run_id = run_id.into();
+        debug_assert!(!run_id.is_empty(), "run_id must not be empty");
+
         Self {
-            run_id: run_id.into(),
+            run_id,
             agent_id: None,
             team_id: None,
             parent_run_id: None,
@@ -42,7 +42,9 @@ impl RunOutput {
     }
 
     pub fn with_agent(mut self, agent_id: impl Into<String>) -> Self {
-        self.agent_id = Some(agent_id.into());
+        let agent_id = agent_id.into();
+        debug_assert!(!agent_id.is_empty(), "agent_id must not be empty");
+        self.agent_id = Some(agent_id);
         self
     }
 
@@ -66,11 +68,25 @@ impl RunOutput {
     }
 
     pub fn duration_ms(&self) -> Option<u64> {
-        self.completed_at.map(|end| (end - self.started_at) * 1000)
+        self.completed_at.map(|end| {
+            debug_assert!(end >= self.started_at, "end time must be after start time");
+            (end - self.started_at) * 1000
+        })
+    }
+
+    pub fn is_completed(&self) -> bool {
+        self.status == Status::Completed
+    }
+
+    pub fn is_failed(&self) -> bool {
+        self.status == Status::Failed
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.status == Status::Running
     }
 }
 
-/// Tool call record
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCallRecord {
     pub id: String,
@@ -81,7 +97,32 @@ pub struct ToolCallRecord {
     pub error: Option<String>,
 }
 
-/// Run metrics
+impl ToolCallRecord {
+    pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
+        let id = id.into();
+        let name = name.into();
+        debug_assert!(!id.is_empty(), "tool call id must not be empty");
+        debug_assert!(!name.is_empty(), "tool call name must not be empty");
+
+        Self {
+            id,
+            name,
+            arguments: serde_json::Value::Null,
+            result: None,
+            duration_ms: None,
+            error: None,
+        }
+    }
+
+    pub fn is_success(&self) -> bool {
+        self.error.is_none() && self.result.is_some()
+    }
+
+    pub fn is_error(&self) -> bool {
+        self.error.is_some()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RunMetrics {
     pub input_tokens: u32,
@@ -91,7 +132,19 @@ pub struct RunMetrics {
     pub tool_calls: usize,
 }
 
-/// Session summary
+impl RunMetrics {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_tokens(mut self, input: u32, output: u32) -> Self {
+        self.input_tokens = input;
+        self.output_tokens = output;
+        self.total_tokens = input + output;
+        self
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionSummary {
     pub summary: String,
@@ -113,12 +166,20 @@ impl SessionSummary {
             updated_at: current_timestamp(),
         }
     }
+
+    pub fn with_topics(mut self, topics: Vec<String>) -> Self {
+        debug_assert!(
+            topics.iter().all(|t| !t.is_empty()),
+            "topics must not contain empty strings"
+        );
+        self.topics = topics;
+        self
+    }
 }
 
-/// Get current unix timestamp
 pub fn current_timestamp() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .expect("System time before Unix epoch")
         .as_secs()
 }

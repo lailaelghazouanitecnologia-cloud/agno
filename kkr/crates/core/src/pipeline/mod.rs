@@ -1,11 +1,3 @@
-//! Pipeline - execution flow for capsules
-//!
-//! Pipelines define the steps and flow of execution with support for:
-//! - Sequential and parallel execution
-//! - Conditional branching and loops
-//! - Streaming results via channels
-//! - Session state management
-
 mod context;
 mod event;
 mod node;
@@ -23,7 +15,9 @@ use tokio::sync::mpsc;
 use crate::types::Status;
 use crate::Result;
 
-/// Pipeline definition and executor
+const EVENT_CHANNEL_SIZE: usize = 100;
+const DEFAULT_MAX_LOOP_ITERATIONS: usize = 100;
+
 pub struct Pipeline {
     pub id: crate::types::Id,
     pub name: String,
@@ -34,9 +28,12 @@ pub struct Pipeline {
 
 impl Pipeline {
     pub fn new(name: impl Into<String>) -> Self {
+        let name = name.into();
+        debug_assert!(!name.is_empty(), "pipeline name must not be empty");
+
         Self {
             id: crate::new_id(),
-            name: name.into(),
+            name,
             steps: HashMap::new(),
             graph: PipelineNode::Sequence(Vec::new()),
             event_tx: None,
@@ -45,6 +42,8 @@ impl Pipeline {
 
     pub fn add_step<S: Step + 'static>(&mut self, step: S) {
         let name = step.name().to_string();
+        debug_assert!(!name.is_empty(), "step name must not be empty");
+
         self.steps.insert(name.clone(), Arc::new(step));
 
         if let PipelineNode::Sequence(ref mut nodes) = self.graph {
@@ -62,7 +61,7 @@ impl Pipeline {
     }
 
     pub fn create_event_channel(&mut self) -> mpsc::Receiver<PipelineEvent> {
-        let (tx, rx) = mpsc::channel(100);
+        let (tx, rx) = mpsc::channel(EVENT_CHANNEL_SIZE);
         self.event_tx = Some(tx);
         rx
     }
@@ -147,6 +146,8 @@ impl Pipeline {
                     self.execute_parallel(nodes, ctx, executed, failed).await
                 }
                 PipelineNode::Condition { expr, then, else_ } => {
+                    debug_assert!(!expr.is_empty(), "condition expression must not be empty");
+
                     let condition = ctx.data.get(expr).and_then(|v| v.as_bool()).unwrap_or(false);
 
                     if condition {
@@ -162,7 +163,9 @@ impl Pipeline {
                     body,
                     max_iterations,
                 } => {
-                    let max = max_iterations.unwrap_or(100);
+                    debug_assert!(!while_.is_empty(), "loop condition must not be empty");
+
+                    let max = max_iterations.unwrap_or(DEFAULT_MAX_LOOP_ITERATIONS);
                     for _ in 0..max {
                         let condition =
                             ctx.data.get(while_).and_then(|v| v.as_bool()).unwrap_or(false);
@@ -184,6 +187,8 @@ impl Pipeline {
                     routes,
                     default,
                 } => {
+                    debug_assert!(!route_key.is_empty(), "route_key must not be empty");
+
                     let route_name = ctx.get::<String>(route_key);
                     let target = match route_name {
                         Some(ref name) => routes.get(name).map(|n| n.as_ref()),
@@ -206,6 +211,8 @@ impl Pipeline {
         executed: &mut Vec<String>,
         failed: &mut usize,
     ) -> Result<StepResult> {
+        debug_assert!(!name.is_empty(), "step name must not be empty");
+
         let step = match self.steps.get(name) {
             Some(s) => s,
             None => return Err(crate::Error::Pipeline(format!("Step not found: {}", name))),
@@ -362,7 +369,6 @@ impl Pipeline {
     }
 }
 
-/// Standalone executor for parallel execution
 fn execute_node_standalone<'a>(
     node: &'a PipelineNode,
     steps: &'a HashMap<String, Arc<dyn Step>>,
@@ -412,7 +418,6 @@ fn execute_node_standalone<'a>(
                 Ok(StepResult::Continue)
             }
             PipelineNode::Parallel(nodes) => {
-                // Nested parallel - execute sequentially
                 for node in nodes {
                     execute_node_standalone(node, steps, ctx, executed, failed).await?;
                 }
@@ -433,7 +438,7 @@ fn execute_node_standalone<'a>(
                 body,
                 max_iterations,
             } => {
-                let max = max_iterations.unwrap_or(100);
+                let max = max_iterations.unwrap_or(DEFAULT_MAX_LOOP_ITERATIONS);
                 for _ in 0..max {
                     let condition =
                         ctx.data.get(while_).and_then(|v| v.as_bool()).unwrap_or(false);

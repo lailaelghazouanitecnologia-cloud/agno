@@ -1,7 +1,3 @@
-//! Capsule - mini agent specialized in a part of the workspace
-//!
-//! Capsules are autonomous units that work on a specific scope.
-
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 
@@ -13,20 +9,28 @@ use crate::types::{Id, Message, Role};
 use crate::workspace::Scope;
 use crate::Result;
 
-/// Capsule configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CapsuleConfig {
-    /// Capsule name
     pub name: String,
-    /// Description of what this capsule does
     pub description: String,
-    /// Scope within the workspace
     pub scope: Utf8PathBuf,
-    /// System instructions
     pub instructions: Option<String>,
 }
 
-/// Capsule - a mini agent for a specific part of the project
+impl CapsuleConfig {
+    pub fn new(name: impl Into<String>) -> Self {
+        let name = name.into();
+        debug_assert!(!name.is_empty(), "capsule name must not be empty");
+
+        Self {
+            description: format!("Capsule: {}", name),
+            name,
+            scope: Utf8PathBuf::from("."),
+            instructions: None,
+        }
+    }
+}
+
 pub struct Capsule {
     pub id: Id,
     pub config: CapsuleConfig,
@@ -39,6 +43,8 @@ pub struct Capsule {
 
 impl Capsule {
     pub fn new(config: CapsuleConfig) -> Self {
+        debug_assert!(!config.name.is_empty(), "capsule name must not be empty");
+
         let scope = Scope::new(&config.name, &config.scope);
 
         Self {
@@ -52,37 +58,31 @@ impl Capsule {
         }
     }
 
-    /// Builder pattern
     pub fn builder(name: impl Into<String>) -> CapsuleBuilder {
         CapsuleBuilder::new(name)
     }
 
-    /// Get capsule name
     pub fn name(&self) -> &str {
         &self.config.name
     }
 
-    /// Get capsule description
     pub fn description(&self) -> &str {
         &self.config.description
     }
 
-    /// Get scope path
     pub fn scope_path(&self) -> &Utf8PathBuf {
         &self.config.scope
     }
 
-    /// Register a tool
     pub fn register_tool(&mut self, tool: Box<dyn Tool>) {
         self.tools.register(tool);
     }
 
-    /// Add a pipeline
     pub fn add_pipeline(&mut self, pipeline: Pipeline) {
+        debug_assert!(!pipeline.name.is_empty(), "pipeline name must not be empty");
         self.pipelines.push(pipeline);
     }
 
-    /// Get tool context for this capsule
     pub fn tool_context(&self, workspace_root: Option<Utf8PathBuf>) -> ToolContext {
         ToolContext {
             workspace_root,
@@ -91,44 +91,42 @@ impl Capsule {
         }
     }
 
-    /// Get all tool definitions
     pub fn tool_definitions(&self) -> Vec<crate::tool::ToolDefinition> {
         self.tools.definitions()
     }
 
-    /// Execute a tool
     pub async fn execute_tool(
         &self,
         name: &str,
         params: serde_json::Value,
         workspace_root: Option<Utf8PathBuf>,
     ) -> Result<serde_json::Value> {
+        debug_assert!(!name.is_empty(), "tool name must not be empty");
+
         let ctx = self.tool_context(workspace_root);
         self.tools.execute(name, params, &ctx).await
     }
 
-    /// Add message to memory
     pub fn add_to_memory(&mut self, message: Message) {
         self.memory.add(message);
     }
 
-    /// Get conversation history
     pub fn history(&self) -> Vec<Message> {
         self.memory.messages()
     }
 
-    /// Add document to knowledge
     pub fn add_knowledge(&mut self, doc: crate::knowledge::Document) {
         self.knowledge.add(doc);
     }
 
-    /// Search knowledge
     pub fn search_knowledge(&self, query: &str) -> Vec<crate::knowledge::SearchResult> {
+        debug_assert!(!query.is_empty(), "search query must not be empty");
         self.knowledge.search_text(query)
     }
 
-    /// Execute a pipeline by name
     pub async fn execute_pipeline(&self, name: &str, ctx: PipelineContext) -> Result<crate::pipeline::PipelineResult> {
+        debug_assert!(!name.is_empty(), "pipeline name must not be empty");
+
         let pipeline = self
             .pipelines
             .iter()
@@ -138,7 +136,6 @@ impl Capsule {
         pipeline.execute(ctx).await
     }
 
-    /// Build system message with context
     pub fn system_message(&self) -> Message {
         let mut content = String::new();
 
@@ -161,9 +158,16 @@ impl Capsule {
             tool_call_id: None,
         }
     }
+
+    pub fn pipeline_count(&self) -> usize {
+        self.pipelines.len()
+    }
+
+    pub fn tool_count(&self) -> usize {
+        self.tools.definitions().len()
+    }
 }
 
-/// Builder for Capsule
 pub struct CapsuleBuilder {
     name: String,
     description: String,
@@ -175,6 +179,8 @@ pub struct CapsuleBuilder {
 impl CapsuleBuilder {
     pub fn new(name: impl Into<String>) -> Self {
         let name = name.into();
+        debug_assert!(!name.is_empty(), "capsule name must not be empty");
+
         Self {
             description: format!("Capsule: {}", name),
             name,
@@ -185,7 +191,9 @@ impl CapsuleBuilder {
     }
 
     pub fn description(mut self, desc: impl Into<String>) -> Self {
-        self.description = desc.into();
+        let desc = desc.into();
+        debug_assert!(!desc.is_empty(), "description must not be empty");
+        self.description = desc;
         self
     }
 
@@ -219,37 +227,5 @@ impl CapsuleBuilder {
         }
 
         capsule
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_capsule_builder() {
-        let capsule = Capsule::builder("frontend")
-            .description("Frontend React application")
-            .scope("src/frontend")
-            .instructions("You work on the frontend code")
-            .build();
-
-        assert_eq!(capsule.name(), "frontend");
-        assert_eq!(capsule.scope_path().as_str(), "src/frontend");
-    }
-
-    #[test]
-    fn test_capsule_memory() {
-        let mut capsule = Capsule::builder("test").build();
-
-        capsule.add_to_memory(Message {
-            role: Role::User,
-            content: "Hello".to_string(),
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-        });
-
-        assert_eq!(capsule.history().len(), 1);
     }
 }

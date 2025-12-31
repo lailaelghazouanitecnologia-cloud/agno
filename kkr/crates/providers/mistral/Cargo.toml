@@ -1,0 +1,14 @@
+[package]
+name = "kkr-provider-mistral"
+version.workspace = true
+edition.workspace = true
+description = "Mistral AI provider for KKR"
+
+[dependencies]
+kkr-core.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

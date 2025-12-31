@@ -1,0 +1,14 @@
+[package]
+name = "kkr-provider-google"
+version.workspace = true
+edition.workspace = true
+description = "Google Gemini provider for KKR"
+
+[dependencies]
+kkr-core.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

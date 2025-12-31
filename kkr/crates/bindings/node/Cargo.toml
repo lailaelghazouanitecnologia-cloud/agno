@@ -1,0 +1,18 @@
+[package]
+name = "kkr-node"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+kkr-core.workspace = true
+napi = "2"
+napi-derive = "2"
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+napi-build = "2"

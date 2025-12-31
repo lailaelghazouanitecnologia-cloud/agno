@@ -1,0 +1,22 @@
+[package]
+name = "kkr-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core types and traits for KKR framework"
+
+[dependencies]
+tokio.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+
+# Path handling
+camino = { version = "1.1", features = ["serde1"] }
+
+# Schema validation
+jsonschema = "0.18"

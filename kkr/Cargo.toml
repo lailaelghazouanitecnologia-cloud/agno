@@ -1,0 +1,61 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/runtime",
+    "crates/workflow",
+    "crates/providers/anthropic",
+    "crates/providers/groq",
+    "crates/tools/fs",
+    "crates/tools/git",
+    "crates/tools/shell",
+    "crates/tools/http",
+    "crates/sdk/guardrails",
+    "crates/sdk/tendencies",
+    "crates/bindings/python",
+    "crates/bindings/node",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/kkr-framework/kkr"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# UUID
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json", "stream"] }
+
+# Channels
+async-channel = "2.1"
+crossbeam-channel = "0.5"
+
+# Internal crates
+kkr-core = { path = "crates/core" }
+kkr-runtime = { path = "crates/runtime" }
+kkr-workflow = { path = "crates/workflow" }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

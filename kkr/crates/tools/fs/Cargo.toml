@@ -1,0 +1,11 @@
+[package]
+name = "kkr-tool-fs"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+kkr-core.workspace = true
+tokio = { workspace = true, features = ["fs"] }
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true

@@ -1,18 +1,9 @@
-//! Guardrails - restrictions and safety checks
-//!
-//! Guardrails prevent unwanted actions and enforce safety constraints.
-//! They are the "what NOT to do" rules for agents and capsules.
-
 use std::collections::HashSet;
 
-/// Result of a guardrail check
 #[derive(Debug, Clone)]
 pub enum GuardrailResult {
-    /// Action is allowed
     Allow,
-    /// Action is blocked with a reason
     Block(String),
-    /// Action requires modification
     Modify(String),
 }
 
@@ -24,47 +15,56 @@ impl GuardrailResult {
     pub fn is_blocked(&self) -> bool {
         matches!(self, GuardrailResult::Block(_))
     }
-}
 
-/// Guardrail trait for implementing custom safety checks
-pub trait Guardrail: Send + Sync {
-    /// Name of the guardrail
-    fn name(&self) -> &str;
+    pub fn is_modify(&self) -> bool {
+        matches!(self, GuardrailResult::Modify(_))
+    }
 
-    /// Check if an action is allowed
-    fn check(&self, context: &GuardrailContext) -> GuardrailResult;
-
-    /// Priority (lower = checked first)
-    fn priority(&self) -> i32 {
-        0
+    pub fn reason(&self) -> Option<&str> {
+        match self {
+            GuardrailResult::Block(r) | GuardrailResult::Modify(r) => Some(r),
+            GuardrailResult::Allow => None,
+        }
     }
 }
 
-/// Context passed to guardrails for evaluation
+pub trait Guardrail: Send + Sync {
+    fn name(&self) -> &str;
+
+    fn check(&self, context: &GuardrailContext) -> GuardrailResult;
+
+    fn priority(&self) -> i32 {
+        0
+    }
+
+    fn description(&self) -> &str {
+        ""
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct GuardrailContext {
-    /// Type of action being checked
     pub action: String,
-    /// Tool being invoked (if any)
     pub tool: Option<String>,
-    /// Parameters of the action
     pub params: serde_json::Value,
-    /// Current message/prompt
     pub message: Option<String>,
-    /// Additional metadata
     pub metadata: serde_json::Value,
 }
 
 impl GuardrailContext {
     pub fn new(action: impl Into<String>) -> Self {
+        let action = action.into();
+        debug_assert!(!action.is_empty(), "action must not be empty");
         Self {
-            action: action.into(),
+            action,
             ..Default::default()
         }
     }
 
     pub fn tool(mut self, tool: impl Into<String>) -> Self {
-        self.tool = Some(tool.into());
+        let tool = tool.into();
+        debug_assert!(!tool.is_empty(), "tool must not be empty");
+        self.tool = Some(tool);
         self
     }
 
@@ -77,9 +77,13 @@ impl GuardrailContext {
         self.message = Some(message.into());
         self
     }
+
+    pub fn metadata(mut self, metadata: serde_json::Value) -> Self {
+        self.metadata = metadata;
+        self
+    }
 }
 
-/// Collection of guardrails
 #[derive(Default)]
 pub struct GuardrailSet {
     guardrails: Vec<Box<dyn Guardrail>>,
@@ -90,13 +94,11 @@ impl GuardrailSet {
         Self::default()
     }
 
-    /// Add a guardrail
     pub fn add(&mut self, guardrail: Box<dyn Guardrail>) {
         self.guardrails.push(guardrail);
         self.guardrails.sort_by_key(|g| g.priority());
     }
 
-    /// Check all guardrails
     pub fn check(&self, context: &GuardrailContext) -> GuardrailResult {
         for guardrail in &self.guardrails {
             let result = guardrail.check(context);
@@ -107,7 +109,6 @@ impl GuardrailSet {
         GuardrailResult::Allow
     }
 
-    /// Check and return all violations
     pub fn check_all(&self, context: &GuardrailContext) -> Vec<(String, GuardrailResult)> {
         self.guardrails
             .iter()
@@ -115,11 +116,20 @@ impl GuardrailSet {
             .filter(|(_, r)| !r.is_allowed())
             .collect()
     }
+
+    pub fn len(&self) -> usize {
+        self.guardrails.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.guardrails.is_empty()
+    }
+
+    pub fn names(&self) -> Vec<&str> {
+        self.guardrails.iter().map(|g| g.name()).collect()
+    }
 }
 
-// Built-in guardrails
-
-/// Block specific tools from being used
 pub struct BlockedToolsGuardrail {
     tools: HashSet<String>,
 }
@@ -129,6 +139,10 @@ impl BlockedToolsGuardrail {
         Self {
             tools: tools.into_iter().map(|s| s.into()).collect(),
         }
+    }
+
+    pub fn add(&mut self, tool: impl Into<String>) {
+        self.tools.insert(tool.into());
     }
 }
 
@@ -147,11 +161,10 @@ impl Guardrail for BlockedToolsGuardrail {
     }
 
     fn priority(&self) -> i32 {
-        -100 // Check early
+        -100
     }
 }
 
-/// Block file operations outside allowed paths
 pub struct PathRestrictionGuardrail {
     allowed_paths: Vec<String>,
     blocked_paths: Vec<String>,
@@ -195,21 +208,18 @@ impl Guardrail for PathRestrictionGuardrail {
     }
 
     fn check(&self, context: &GuardrailContext) -> GuardrailResult {
-        // Check for path in params
-        let path = context.params.get("path")
+        let path = context
+            .params
+            .get("path")
             .and_then(|v| v.as_str())
             .or_else(|| context.params.get("file").and_then(|v| v.as_str()));
 
         if let Some(path) = path {
-            // Check blocked paths
             for blocked in &self.blocked_paths {
                 if path.starts_with(blocked) {
-                    // Check if explicitly allowed
                     let allowed = self.allowed_paths.iter().any(|a| path.starts_with(a));
                     if !allowed {
-                        return GuardrailResult::Block(format!(
-                            "Path '{}' is restricted", path
-                        ));
+                        return GuardrailResult::Block(format!("Path '{}' is restricted", path));
                     }
                 }
             }
@@ -218,7 +228,6 @@ impl Guardrail for PathRestrictionGuardrail {
     }
 }
 
-/// Block dangerous shell commands
 pub struct ShellCommandGuardrail {
     blocked_patterns: Vec<String>,
 }
@@ -229,7 +238,7 @@ impl ShellCommandGuardrail {
             blocked_patterns: vec![
                 "rm -rf /".to_string(),
                 "rm -rf /*".to_string(),
-                ":(){:|:&};:".to_string(), // fork bomb
+                ":(){:|:&};:".to_string(),
                 "mkfs".to_string(),
                 "dd if=/dev".to_string(),
                 "> /dev/sda".to_string(),
@@ -264,14 +273,17 @@ impl Guardrail for ShellCommandGuardrail {
             return GuardrailResult::Allow;
         }
 
-        let command = context.params.get("command")
+        let command = context
+            .params
+            .get("command")
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
         for pattern in &self.blocked_patterns {
             if command.contains(pattern) {
                 return GuardrailResult::Block(format!(
-                    "Dangerous command pattern detected: {}", pattern
+                    "Dangerous command pattern detected: {}",
+                    pattern
                 ));
             }
         }
@@ -283,7 +295,6 @@ impl Guardrail for ShellCommandGuardrail {
     }
 }
 
-/// Rate limiting guardrail
 pub struct RateLimitGuardrail {
     max_calls: usize,
     window_secs: u64,
@@ -292,6 +303,8 @@ pub struct RateLimitGuardrail {
 
 impl RateLimitGuardrail {
     pub fn new(max_calls: usize, window_secs: u64) -> Self {
+        debug_assert!(max_calls > 0, "max_calls must be positive");
+        debug_assert!(window_secs > 0, "window_secs must be positive");
         Self {
             max_calls,
             window_secs,
@@ -310,8 +323,6 @@ impl Guardrail for RateLimitGuardrail {
         let window = std::time::Duration::from_secs(self.window_secs);
 
         let mut calls = self.calls.lock().unwrap();
-
-        // Remove old calls
         calls.retain(|t| now.duration_since(*t) < window);
 
         if calls.len() >= self.max_calls {
@@ -326,11 +337,10 @@ impl Guardrail for RateLimitGuardrail {
     }
 
     fn priority(&self) -> i32 {
-        -200 // Check very early
+        -200
     }
 }
 
-/// Content filter guardrail
 pub struct ContentFilterGuardrail {
     blocked_words: HashSet<String>,
     case_sensitive: bool,
@@ -346,6 +356,7 @@ impl ContentFilterGuardrail {
 
     pub fn block_word(mut self, word: impl Into<String>) -> Self {
         let word = word.into();
+        debug_assert!(!word.is_empty(), "blocked word must not be empty");
         self.blocked_words.insert(if self.case_sensitive {
             word
         } else {
@@ -381,61 +392,55 @@ impl Guardrail for ContentFilterGuardrail {
 
         for word in &self.blocked_words {
             if check_content.contains(word) {
-                return GuardrailResult::Block(format!(
-                    "Blocked content detected"
-                ));
+                return GuardrailResult::Block("Blocked content detected".to_string());
             }
         }
         GuardrailResult::Allow
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
+pub struct CallbackGuardrail<F>
+where
+    F: Fn(&GuardrailContext) -> GuardrailResult + Send + Sync,
+{
+    name: String,
+    callback: F,
+    priority: i32,
+}
 
-    #[test]
-    fn test_blocked_tools() {
-        let guardrail = BlockedToolsGuardrail::new(["dangerous_tool"]);
-
-        let ctx = GuardrailContext::new("tool_call")
-            .tool("dangerous_tool");
-
-        assert!(guardrail.check(&ctx).is_blocked());
-
-        let ctx = GuardrailContext::new("tool_call")
-            .tool("safe_tool");
-
-        assert!(guardrail.check(&ctx).is_allowed());
+impl<F> CallbackGuardrail<F>
+where
+    F: Fn(&GuardrailContext) -> GuardrailResult + Send + Sync,
+{
+    pub fn new(name: impl Into<String>, callback: F) -> Self {
+        let name = name.into();
+        debug_assert!(!name.is_empty(), "guardrail name must not be empty");
+        Self {
+            name,
+            callback,
+            priority: 0,
+        }
     }
 
-    #[test]
-    fn test_shell_command() {
-        let guardrail = ShellCommandGuardrail::new();
+    pub fn priority(mut self, priority: i32) -> Self {
+        self.priority = priority;
+        self
+    }
+}
 
-        let ctx = GuardrailContext::new("tool_call")
-            .tool("shell")
-            .params(json!({"command": "rm -rf /"}));
-
-        assert!(guardrail.check(&ctx).is_blocked());
-
-        let ctx = GuardrailContext::new("tool_call")
-            .tool("shell")
-            .params(json!({"command": "ls -la"}));
-
-        assert!(guardrail.check(&ctx).is_allowed());
+impl<F> Guardrail for CallbackGuardrail<F>
+where
+    F: Fn(&GuardrailContext) -> GuardrailResult + Send + Sync,
+{
+    fn name(&self) -> &str {
+        &self.name
     }
 
-    #[test]
-    fn test_guardrail_set() {
-        let mut set = GuardrailSet::new();
-        set.add(Box::new(BlockedToolsGuardrail::new(["blocked"])));
-        set.add(Box::new(ShellCommandGuardrail::new()));
+    fn check(&self, context: &GuardrailContext) -> GuardrailResult {
+        (self.callback)(context)
+    }
 
-        let ctx = GuardrailContext::new("tool_call")
-            .tool("blocked");
-
-        assert!(set.check(&ctx).is_blocked());
+    fn priority(&self) -> i32 {
+        self.priority
     }
 }

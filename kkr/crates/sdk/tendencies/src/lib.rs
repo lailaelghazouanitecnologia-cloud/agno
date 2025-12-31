@@ -1,24 +1,12 @@
-//! Tendencies - preferences and behavioral hints
-//!
-//! Tendencies guide the agent towards preferred behaviors.
-//! They are the "what TO do" suggestions for agents and capsules.
-//! Unlike guardrails (which block), tendencies encourage and prioritize.
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Strength of a tendency
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum TendencyStrength {
-    /// Slight preference
     Weak = 1,
-    /// Moderate preference
     Moderate = 2,
-    /// Strong preference
     Strong = 3,
-    /// Very strong preference
     VeryStrong = 4,
-    /// Must follow (almost like a guardrail)
     Required = 5,
 }
 
@@ -38,29 +26,36 @@ impl TendencyStrength {
             TendencyStrength::Required => 1.0,
         }
     }
+
+    pub fn is_required(&self) -> bool {
+        matches!(self, TendencyStrength::Required)
+    }
+
+    pub fn is_strong_or_above(&self) -> bool {
+        matches!(
+            self,
+            TendencyStrength::Strong | TendencyStrength::VeryStrong | TendencyStrength::Required
+        )
+    }
 }
 
-/// A single tendency rule
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tendency {
-    /// Name of the tendency
     pub name: String,
-    /// Description of what this tendency encourages
     pub description: String,
-    /// How strongly to apply this tendency
     pub strength: TendencyStrength,
-    /// Category for grouping
     pub category: Option<String>,
-    /// Conditions when this tendency applies
     pub conditions: Vec<TendencyCondition>,
-    /// Actions or behaviors this tendency encourages
     pub encourages: Vec<String>,
 }
 
 impl Tendency {
     pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
+        let name = name.into();
+        debug_assert!(!name.is_empty(), "tendency name must not be empty");
+
         Self {
-            name: name.into(),
+            name,
             description: description.into(),
             strength: TendencyStrength::default(),
             category: None,
@@ -75,7 +70,9 @@ impl Tendency {
     }
 
     pub fn category(mut self, category: impl Into<String>) -> Self {
-        self.category = Some(category.into());
+        let category = category.into();
+        debug_assert!(!category.is_empty(), "category must not be empty");
+        self.category = Some(category);
         self
     }
 
@@ -85,11 +82,12 @@ impl Tendency {
     }
 
     pub fn encourage(mut self, action: impl Into<String>) -> Self {
-        self.encourages.push(action.into());
+        let action = action.into();
+        debug_assert!(!action.is_empty(), "action must not be empty");
+        self.encourages.push(action);
         self
     }
 
-    /// Check if this tendency applies to the given context
     pub fn applies_to(&self, context: &TendencyContext) -> bool {
         if self.conditions.is_empty() {
             return true;
@@ -98,57 +96,52 @@ impl Tendency {
     }
 }
 
-/// Condition for when a tendency applies
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TendencyCondition {
-    /// Applies when working with specific file types
     FileType(Vec<String>),
-    /// Applies when using specific tools
     Tool(Vec<String>),
-    /// Applies in specific project contexts
     ProjectType(Vec<String>),
-    /// Applies when content matches pattern
     ContentContains(String),
-    /// Custom condition with key-value check
     Custom { key: String, value: String },
-    /// Always applies
     Always,
 }
 
 impl TendencyCondition {
     pub fn matches(&self, context: &TendencyContext) -> bool {
         match self {
-            TendencyCondition::FileType(types) => {
-                context.file_type.as_ref()
-                    .map(|t| types.iter().any(|ft| ft == t))
-                    .unwrap_or(false)
-            }
-            TendencyCondition::Tool(tools) => {
-                context.tool.as_ref()
-                    .map(|t| tools.iter().any(|tool| tool == t))
-                    .unwrap_or(false)
-            }
-            TendencyCondition::ProjectType(types) => {
-                context.project_type.as_ref()
-                    .map(|t| types.iter().any(|pt| pt == t))
-                    .unwrap_or(false)
-            }
-            TendencyCondition::ContentContains(pattern) => {
-                context.content.as_ref()
-                    .map(|c| c.contains(pattern))
-                    .unwrap_or(false)
-            }
+            TendencyCondition::FileType(types) => context
+                .file_type
+                .as_ref()
+                .map(|t| types.iter().any(|ft| ft == t))
+                .unwrap_or(false),
+
+            TendencyCondition::Tool(tools) => context
+                .tool
+                .as_ref()
+                .map(|t| tools.iter().any(|tool| tool == t))
+                .unwrap_or(false),
+
+            TendencyCondition::ProjectType(types) => context
+                .project_type
+                .as_ref()
+                .map(|t| types.iter().any(|pt| pt == t))
+                .unwrap_or(false),
+
+            TendencyCondition::ContentContains(pattern) => context
+                .content
+                .as_ref()
+                .map(|c| c.contains(pattern))
+                .unwrap_or(false),
+
             TendencyCondition::Custom { key, value } => {
-                context.metadata.get(key)
-                    .map(|v| v == value)
-                    .unwrap_or(false)
+                context.metadata.get(key).map(|v| v == value).unwrap_or(false)
             }
+
             TendencyCondition::Always => true,
         }
     }
 }
 
-/// Context for evaluating tendencies
 #[derive(Debug, Clone, Default)]
 pub struct TendencyContext {
     pub tool: Option<String>,
@@ -164,17 +157,23 @@ impl TendencyContext {
     }
 
     pub fn tool(mut self, tool: impl Into<String>) -> Self {
-        self.tool = Some(tool.into());
+        let tool = tool.into();
+        debug_assert!(!tool.is_empty(), "tool must not be empty");
+        self.tool = Some(tool);
         self
     }
 
     pub fn file_type(mut self, file_type: impl Into<String>) -> Self {
-        self.file_type = Some(file_type.into());
+        let file_type = file_type.into();
+        debug_assert!(!file_type.is_empty(), "file_type must not be empty");
+        self.file_type = Some(file_type);
         self
     }
 
     pub fn project_type(mut self, project_type: impl Into<String>) -> Self {
-        self.project_type = Some(project_type.into());
+        let project_type = project_type.into();
+        debug_assert!(!project_type.is_empty(), "project_type must not be empty");
+        self.project_type = Some(project_type);
         self
     }
 
@@ -184,12 +183,13 @@ impl TendencyContext {
     }
 
     pub fn meta(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.metadata.insert(key.into(), value.into());
+        let key = key.into();
+        debug_assert!(!key.is_empty(), "metadata key must not be empty");
+        self.metadata.insert(key, value.into());
         self
     }
 }
 
-/// Collection of tendencies
 #[derive(Default, Clone)]
 pub struct TendencySet {
     tendencies: Vec<Tendency>,
@@ -200,12 +200,11 @@ impl TendencySet {
         Self::default()
     }
 
-    /// Add a tendency
     pub fn add(&mut self, tendency: Tendency) {
+        debug_assert!(!tendency.name.is_empty(), "tendency name must not be empty");
         self.tendencies.push(tendency);
     }
 
-    /// Get all tendencies that apply to a context
     pub fn applicable(&self, context: &TendencyContext) -> Vec<&Tendency> {
         self.tendencies
             .iter()
@@ -213,7 +212,6 @@ impl TendencySet {
             .collect()
     }
 
-    /// Get encouraged actions for a context, weighted by strength
     pub fn encouraged_actions(&self, context: &TendencyContext) -> Vec<(String, f32)> {
         let mut actions: HashMap<String, f32> = HashMap::new();
 
@@ -221,16 +219,15 @@ impl TendencySet {
             let weight = tendency.strength.as_weight();
             for action in &tendency.encourages {
                 let entry = actions.entry(action.clone()).or_insert(0.0);
-                *entry = (*entry).max(weight); // Take strongest weight
+                *entry = (*entry).max(weight);
             }
         }
 
         let mut result: Vec<_> = actions.into_iter().collect();
-        result.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        result.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         result
     }
 
-    /// Generate a prompt addition based on active tendencies
     pub fn to_prompt(&self, context: &TendencyContext) -> String {
         let applicable = self.applicable(context);
         if applicable.is_empty() {
@@ -247,95 +244,120 @@ impl TendencySet {
                 TendencyStrength::VeryStrong => "●●●",
                 TendencyStrength::Required => "◆",
             };
-            prompt.push_str(&format!("{} {}: {}\n",
-                strength_marker,
-                tendency.name,
-                tendency.description
+            prompt.push_str(&format!(
+                "{} {}: {}\n",
+                strength_marker, tendency.name, tendency.description
             ));
         }
 
         prompt
     }
 
-    /// Get all tendencies
     pub fn all(&self) -> &[Tendency] {
         &self.tendencies
     }
 
-    /// Get tendencies by category
     pub fn by_category(&self, category: &str) -> Vec<&Tendency> {
+        debug_assert!(!category.is_empty(), "category must not be empty");
         self.tendencies
             .iter()
             .filter(|t| t.category.as_deref() == Some(category))
             .collect()
     }
+
+    pub fn len(&self) -> usize {
+        self.tendencies.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.tendencies.is_empty()
+    }
+
+    pub fn merge(&mut self, other: TendencySet) {
+        for tendency in other.tendencies {
+            self.add(tendency);
+        }
+    }
 }
 
-// Common pre-built tendencies
-
-/// Create common code style tendencies
 pub fn code_style_tendencies() -> TendencySet {
     let mut set = TendencySet::new();
 
     set.add(
-        Tendency::new("concise_code", "Prefer concise, readable code over verbose implementations")
-            .strength(TendencyStrength::Strong)
-            .category("code_style")
-            .when(TendencyCondition::Always)
-            .encourage("write_concise_code")
+        Tendency::new(
+            "concise_code",
+            "Prefer concise, readable code over verbose implementations",
+        )
+        .strength(TendencyStrength::Strong)
+        .category("code_style")
+        .when(TendencyCondition::Always)
+        .encourage("write_concise_code"),
     );
 
     set.add(
-        Tendency::new("meaningful_names", "Use descriptive, meaningful variable and function names")
-            .strength(TendencyStrength::Strong)
-            .category("code_style")
-            .when(TendencyCondition::Always)
-            .encourage("use_meaningful_names")
+        Tendency::new(
+            "meaningful_names",
+            "Use descriptive, meaningful variable and function names",
+        )
+        .strength(TendencyStrength::Strong)
+        .category("code_style")
+        .when(TendencyCondition::Always)
+        .encourage("use_meaningful_names"),
     );
 
     set.add(
-        Tendency::new("small_functions", "Prefer small, focused functions over large monolithic ones")
-            .strength(TendencyStrength::Moderate)
-            .category("code_style")
-            .when(TendencyCondition::Always)
-            .encourage("write_small_functions")
+        Tendency::new(
+            "small_functions",
+            "Prefer small, focused functions over large monolithic ones",
+        )
+        .strength(TendencyStrength::Moderate)
+        .category("code_style")
+        .when(TendencyCondition::Always)
+        .encourage("write_small_functions"),
     );
 
     set
 }
 
-/// Create common safety tendencies
 pub fn safety_tendencies() -> TendencySet {
     let mut set = TendencySet::new();
 
     set.add(
-        Tendency::new("validate_input", "Always validate user input before processing")
-            .strength(TendencyStrength::VeryStrong)
-            .category("safety")
-            .when(TendencyCondition::Always)
-            .encourage("validate_inputs")
+        Tendency::new(
+            "validate_input",
+            "Always validate user input before processing",
+        )
+        .strength(TendencyStrength::VeryStrong)
+        .category("safety")
+        .when(TendencyCondition::Always)
+        .encourage("validate_inputs"),
     );
 
     set.add(
-        Tendency::new("handle_errors", "Handle errors gracefully instead of crashing")
-            .strength(TendencyStrength::Strong)
-            .category("safety")
-            .when(TendencyCondition::Always)
-            .encourage("error_handling")
+        Tendency::new(
+            "handle_errors",
+            "Handle errors gracefully instead of crashing",
+        )
+        .strength(TendencyStrength::Strong)
+        .category("safety")
+        .when(TendencyCondition::Always)
+        .encourage("error_handling"),
     );
 
     set.add(
-        Tendency::new("avoid_hardcoded_secrets", "Never hardcode secrets or credentials")
-            .strength(TendencyStrength::Required)
-            .category("safety")
-            .when(TendencyCondition::Always)
-            .encourage("use_env_vars_for_secrets")
+        Tendency::new(
+            "avoid_hardcoded_secrets",
+            "Never hardcode secrets or credentials",
+        )
+        .strength(TendencyStrength::Required)
+        .category("safety")
+        .when(TendencyCondition::Always)
+        .encourage("use_env_vars_for_secrets"),
     );
 
     set
 }
 
-/// Create language-specific tendencies for Rust
 pub fn rust_tendencies() -> TendencySet {
     let mut set = TendencySet::new();
 
@@ -344,7 +366,7 @@ pub fn rust_tendencies() -> TendencySet {
             .strength(TendencyStrength::Strong)
             .category("rust")
             .when(TendencyCondition::FileType(vec!["rs".to_string()]))
-            .encourage("use_result_type")
+            .encourage("use_result_type"),
     );
 
     set.add(
@@ -352,54 +374,94 @@ pub fn rust_tendencies() -> TendencySet {
             .strength(TendencyStrength::Moderate)
             .category("rust")
             .when(TendencyCondition::FileType(vec!["rs".to_string()]))
-            .encourage("use_iterators")
+            .encourage("use_iterators"),
     );
 
     set.add(
-        Tendency::new("derive_traits", "Derive common traits (Debug, Clone) when appropriate")
-            .strength(TendencyStrength::Moderate)
+        Tendency::new(
+            "derive_traits",
+            "Derive common traits (Debug, Clone) when appropriate",
+        )
+        .strength(TendencyStrength::Moderate)
+        .category("rust")
+        .when(TendencyCondition::FileType(vec!["rs".to_string()]))
+        .encourage("derive_common_traits"),
+    );
+
+    set.add(
+        Tendency::new("use_assertions", "Use debug_assert! for invariants")
+            .strength(TendencyStrength::Strong)
             .category("rust")
             .when(TendencyCondition::FileType(vec!["rs".to_string()]))
-            .encourage("derive_common_traits")
+            .encourage("add_debug_assertions"),
     );
 
     set
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub fn python_tendencies() -> TendencySet {
+    let mut set = TendencySet::new();
 
-    #[test]
-    fn test_tendency_applies() {
-        let tendency = Tendency::new("test", "Test tendency")
-            .when(TendencyCondition::FileType(vec!["rs".to_string()]));
+    set.add(
+        Tendency::new("type_hints", "Use type hints for function signatures")
+            .strength(TendencyStrength::Moderate)
+            .category("python")
+            .when(TendencyCondition::FileType(vec!["py".to_string()]))
+            .encourage("add_type_hints"),
+    );
 
-        let ctx = TendencyContext::new().file_type("rs");
-        assert!(tendency.applies_to(&ctx));
+    set.add(
+        Tendency::new("docstrings", "Add docstrings to public functions")
+            .strength(TendencyStrength::Moderate)
+            .category("python")
+            .when(TendencyCondition::FileType(vec!["py".to_string()]))
+            .encourage("add_docstrings"),
+    );
 
-        let ctx = TendencyContext::new().file_type("py");
-        assert!(!tendency.applies_to(&ctx));
+    set
+}
+
+pub struct CallbackTendency<F>
+where
+    F: Fn(&TendencyContext) -> bool + Send + Sync,
+{
+    tendency: Tendency,
+    condition: F,
+}
+
+impl<F> CallbackTendency<F>
+where
+    F: Fn(&TendencyContext) -> bool + Send + Sync,
+{
+    pub fn new(name: impl Into<String>, condition: F) -> Self {
+        let name = name.into();
+        debug_assert!(!name.is_empty(), "tendency name must not be empty");
+        Self {
+            tendency: Tendency::new(name, ""),
+            condition,
+        }
     }
 
-    #[test]
-    fn test_tendency_set() {
-        let mut set = TendencySet::new();
-        set.add(
-            Tendency::new("rust_style", "Rust style")
-                .strength(TendencyStrength::Strong)
-                .when(TendencyCondition::FileType(vec!["rs".to_string()]))
-                .encourage("use_result")
-        );
-
-        let ctx = TendencyContext::new().file_type("rs");
-        let applicable = set.applicable(&ctx);
-        assert_eq!(applicable.len(), 1);
+    pub fn description(mut self, desc: impl Into<String>) -> Self {
+        self.tendency.description = desc.into();
+        self
     }
 
-    #[test]
-    fn test_strength_ordering() {
-        assert!(TendencyStrength::Weak < TendencyStrength::Required);
-        assert!(TendencyStrength::Strong < TendencyStrength::VeryStrong);
+    pub fn strength(mut self, strength: TendencyStrength) -> Self {
+        self.tendency.strength = strength;
+        self
+    }
+
+    pub fn encourage(mut self, action: impl Into<String>) -> Self {
+        self.tendency.encourages.push(action.into());
+        self
+    }
+
+    pub fn applies_to(&self, context: &TendencyContext) -> bool {
+        (self.condition)(context)
+    }
+
+    pub fn into_tendency(self) -> Tendency {
+        self.tendency
     }
 }

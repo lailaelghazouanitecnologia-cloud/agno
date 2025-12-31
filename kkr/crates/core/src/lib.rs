@@ -4,10 +4,12 @@
 
 pub mod agent;
 pub mod capsule;
+pub mod hook;
 pub mod knowledge;
 pub mod memory;
 pub mod pipeline;
 pub mod session;
+pub mod team;
 pub mod tool;
 pub mod workspace;
 

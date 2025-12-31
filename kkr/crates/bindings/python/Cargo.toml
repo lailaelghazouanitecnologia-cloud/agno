@@ -10,6 +10,6 @@ crate-type = ["cdylib"]
 [dependencies]
 kkr-core.workspace = true
 pyo3 = { version = "0.20", features = ["extension-module"] }
-tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+uuid.workspace = true

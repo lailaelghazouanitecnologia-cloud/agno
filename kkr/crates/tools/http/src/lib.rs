@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::time::Duration;
 
-use kkr_core::tool::{Tool, ToolContext, ToolSchema};
+use kkr_core::tool::{Tool, ToolCategory, ToolContext, ToolExample, ToolMetadata, ToolSchema};
 use kkr_core::Result;
 
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
@@ -100,6 +100,17 @@ impl Tool for HttpTool {
             }),
             required: vec!["url".to_string()],
         }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Network)
+            .with_tags(vec!["http", "request", "api", "web", "network"])
+            .with_read_only(false)
+            .with_priority(70)
+            .with_example(ToolExample::new(
+                "GET request",
+                json!({"url": "https://api.example.com/data", "method": "GET"}),
+            ))
     }
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
@@ -215,6 +226,14 @@ impl Tool for HttpGetTool {
         }
     }
 
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Network)
+            .with_tags(vec!["http", "get", "fetch", "read"])
+            .with_read_only(true)
+            .with_priority(80)
+            .with_alias("fetch")
+    }
+
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let url = params
             .get("url")
@@ -264,6 +283,13 @@ impl Tool for HttpPostTool {
             }),
             required: vec!["url".to_string()],
         }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Network)
+            .with_tags(vec!["http", "post", "send", "submit"])
+            .with_read_only(false)
+            .with_priority(75)
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {

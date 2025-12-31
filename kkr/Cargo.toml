@@ -12,6 +12,8 @@ members = [
     "crates/tools/http",
     "crates/tools/json",
     "crates/tools/regex",
+    "crates/tools/time",
+    "crates/tools/math",
     "crates/sdk/guardrails",
     "crates/sdk/tendencies",
     "crates/bindings/python",

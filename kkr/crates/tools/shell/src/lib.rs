@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::process::Stdio;
 use tokio::process::Command;
 
-use kkr_core::tool::{Tool, ToolContext, ToolSchema};
+use kkr_core::tool::{Tool, ToolCategory, ToolContext, ToolMetadata, ToolSchema};
 use kkr_core::Result;
 
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
@@ -129,6 +129,14 @@ impl Tool for ShellTool {
         }
     }
 
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Shell)
+            .with_tags(vec!["shell", "command", "execute", "system"])
+            .with_read_only(false)
+            .with_priority(50)
+            .with_alias("exec")
+    }
+
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: ShellParams = serde_json::from_value(params)
             .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
@@ -240,6 +248,13 @@ impl Tool for BashTool {
         self.inner.schema()
     }
 
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Shell)
+            .with_tags(vec!["bash", "command", "execute", "system"])
+            .with_read_only(false)
+            .with_priority(50)
+    }
+
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         self.inner.execute(params, ctx).await
     }
@@ -296,6 +311,13 @@ impl Tool for SafeShellTool {
 
     fn schema(&self) -> ToolSchema {
         self.inner.schema()
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Shell)
+            .with_tags(vec!["shell", "command", "safe", "readonly"])
+            .with_read_only(true)
+            .with_priority(70)
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {

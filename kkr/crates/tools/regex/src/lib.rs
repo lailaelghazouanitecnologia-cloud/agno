@@ -3,7 +3,7 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use kkr_core::tool::{Tool, ToolContext, ToolSchema};
+use kkr_core::tool::{Tool, ToolCategory, ToolContext, ToolExample, ToolMetadata, ToolSchema};
 use kkr_core::Result;
 
 const DEFAULT_MAX_MATCHES: usize = 100;
@@ -77,6 +77,17 @@ impl Tool for RegexMatchTool {
             }),
             required: vec!["pattern".to_string(), "text".to_string()],
         }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Text)
+            .with_tags(vec!["regex", "pattern", "search", "find"])
+            .with_read_only(true)
+            .with_priority(75)
+            .with_example(ToolExample::new(
+                "Find numbers",
+                json!({"pattern": r"\d+", "text": "order 123 has 5 items"}),
+            ))
     }
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
@@ -184,6 +195,13 @@ impl Tool for RegexReplaceTool {
         }
     }
 
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Text)
+            .with_tags(vec!["regex", "replace", "substitute", "transform"])
+            .with_read_only(true)
+            .with_priority(70)
+    }
+
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: ReplaceParams = serde_json::from_value(params)
             .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
@@ -270,6 +288,17 @@ impl Tool for RegexExtractTool {
             }),
             required: vec!["pattern".to_string(), "text".to_string()],
         }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Text)
+            .with_tags(vec!["regex", "extract", "capture", "groups"])
+            .with_read_only(true)
+            .with_priority(70)
+            .with_example(ToolExample::new(
+                "Extract named groups",
+                json!({"pattern": r"(?P<name>\w+)=(?P<val>\d+)", "text": "count=42"}),
+            ))
     }
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
@@ -378,6 +407,13 @@ impl Tool for RegexSplitTool {
         }
     }
 
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Text)
+            .with_tags(vec!["regex", "split", "tokenize"])
+            .with_read_only(true)
+            .with_priority(65)
+    }
+
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: SplitParams = serde_json::from_value(params)
             .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
@@ -436,6 +472,13 @@ impl Tool for RegexTestTool {
             }),
             required: vec!["pattern".to_string(), "text".to_string()],
         }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Text)
+            .with_tags(vec!["regex", "test", "validate", "check"])
+            .with_read_only(true)
+            .with_priority(80)
     }
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {

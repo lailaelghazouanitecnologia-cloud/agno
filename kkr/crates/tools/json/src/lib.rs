@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use kkr_core::tool::{Tool, ToolContext, ToolSchema};
+use kkr_core::tool::{Tool, ToolCategory, ToolContext, ToolExample, ToolMetadata, ToolSchema};
 use kkr_core::Result;
 
 pub struct JsonParseTool;
@@ -40,6 +40,17 @@ impl Tool for JsonParseTool {
             }),
             required: vec!["input".to_string()],
         }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Json)
+            .with_tags(vec!["json", "parse", "deserialize"])
+            .with_read_only(true)
+            .with_priority(80)
+            .with_example(ToolExample::new(
+                "Parse JSON string",
+                json!({"input": r#"{"name": "test"}"#}),
+            ))
     }
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
@@ -138,6 +149,17 @@ impl Tool for JsonQueryTool {
         }
     }
 
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Json)
+            .with_tags(vec!["json", "query", "path", "access"])
+            .with_read_only(true)
+            .with_priority(85)
+            .with_example(ToolExample::new(
+                "Query nested value",
+                json!({"data": {"users": [{"name": "Alice"}]}, "path": "users[0].name"}),
+            ))
+    }
+
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: QueryParams = serde_json::from_value(params)
             .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
@@ -203,6 +225,13 @@ impl Tool for JsonFormatTool {
             }),
             required: vec!["data".to_string()],
         }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Json)
+            .with_tags(vec!["json", "format", "stringify", "serialize"])
+            .with_read_only(true)
+            .with_priority(70)
     }
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
@@ -297,6 +326,13 @@ impl Tool for JsonMergeTool {
         }
     }
 
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Json)
+            .with_tags(vec!["json", "merge", "combine", "patch"])
+            .with_read_only(true)
+            .with_priority(65)
+    }
+
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: MergeParams = serde_json::from_value(params)
             .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
@@ -360,6 +396,13 @@ impl Tool for JsonKeysTool {
         }
     }
 
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Json)
+            .with_tags(vec!["json", "keys", "properties"])
+            .with_read_only(true)
+            .with_priority(60)
+    }
+
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let data = params
             .get("data")
@@ -412,6 +455,13 @@ impl Tool for JsonTypeTool {
             }),
             required: vec!["data".to_string()],
         }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Json)
+            .with_tags(vec!["json", "type", "typeof", "inspect"])
+            .with_read_only(true)
+            .with_priority(55)
     }
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {

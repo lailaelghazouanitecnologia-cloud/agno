@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::process::Command;
 
-use kkr_core::tool::{Tool, ToolContext, ToolSchema};
+use kkr_core::tool::{Tool, ToolCategory, ToolContext, ToolMetadata, ToolSchema};
 use kkr_core::Result;
 
 /// Git status tool
@@ -54,6 +54,13 @@ impl Tool for GitStatusTool {
             }),
             required: vec![],
         }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Git)
+            .with_tags(vec!["git", "status", "changes", "repository"])
+            .with_read_only(true)
+            .with_priority(90)
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
@@ -167,6 +174,13 @@ impl Tool for GitDiffTool {
         }
     }
 
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Git)
+            .with_tags(vec!["git", "diff", "changes", "compare"])
+            .with_read_only(true)
+            .with_priority(85)
+    }
+
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: DiffParams = serde_json::from_value(params)
             .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
@@ -268,6 +282,13 @@ impl Tool for GitLogTool {
             }),
             required: vec![],
         }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Git)
+            .with_tags(vec!["git", "log", "history", "commits"])
+            .with_read_only(true)
+            .with_priority(80)
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
@@ -381,6 +402,13 @@ impl Tool for GitAddTool {
         }
     }
 
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Git)
+            .with_tags(vec!["git", "add", "stage", "index"])
+            .with_read_only(false)
+            .with_priority(70)
+    }
+
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: AddParams = serde_json::from_value(params)
             .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
@@ -466,6 +494,13 @@ impl Tool for GitCommitTool {
         }
     }
 
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Git)
+            .with_tags(vec!["git", "commit", "save", "snapshot"])
+            .with_read_only(false)
+            .with_priority(65)
+    }
+
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: CommitParams = serde_json::from_value(params)
             .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
@@ -545,6 +580,13 @@ impl Tool for GitBranchTool {
             }),
             required: vec![],
         }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Git)
+            .with_tags(vec!["git", "branch", "branches", "list"])
+            .with_read_only(true)
+            .with_priority(75)
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {

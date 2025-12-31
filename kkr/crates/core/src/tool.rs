@@ -4,6 +4,142 @@ use serde_json::Value;
 
 use crate::Result;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolCategory {
+    FileSystem,
+    Git,
+    Shell,
+    Network,
+    Text,
+    Json,
+    Database,
+    Search,
+    Math,
+    Time,
+    System,
+    Custom,
+}
+
+impl Default for ToolCategory {
+    fn default() -> Self {
+        Self::Custom
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolExample {
+    pub description: String,
+    pub input: Value,
+    pub output: Option<Value>,
+}
+
+impl ToolExample {
+    pub fn new(description: impl Into<String>, input: Value) -> Self {
+        Self {
+            description: description.into(),
+            input,
+            output: None,
+        }
+    }
+
+    pub fn with_output(mut self, output: Value) -> Self {
+        self.output = Some(output);
+        self
+    }
+}
+
+const DEFAULT_PRIORITY: u8 = 50;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolMetadata {
+    pub category: ToolCategory,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub examples: Vec<ToolExample>,
+    #[serde(default = "default_priority")]
+    pub priority: u8,
+    #[serde(default)]
+    pub read_only: bool,
+    #[serde(default)]
+    pub requires: Vec<String>,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+}
+
+fn default_priority() -> u8 {
+    DEFAULT_PRIORITY
+}
+
+impl ToolMetadata {
+    pub fn new(category: ToolCategory) -> Self {
+        Self {
+            category,
+            tags: Vec::new(),
+            examples: Vec::new(),
+            priority: DEFAULT_PRIORITY,
+            read_only: false,
+            requires: Vec::new(),
+            aliases: Vec::new(),
+        }
+    }
+
+    pub fn with_tags(mut self, tags: Vec<&str>) -> Self {
+        self.tags = tags.into_iter().map(String::from).collect();
+        self
+    }
+
+    pub fn with_tag(mut self, tag: impl Into<String>) -> Self {
+        self.tags.push(tag.into());
+        self
+    }
+
+    pub fn with_example(mut self, example: ToolExample) -> Self {
+        self.examples.push(example);
+        self
+    }
+
+    pub fn with_priority(mut self, priority: u8) -> Self {
+        debug_assert!(priority <= 100, "priority must be 0-100");
+        self.priority = priority;
+        self
+    }
+
+    pub fn with_read_only(mut self, read_only: bool) -> Self {
+        self.read_only = read_only;
+        self
+    }
+
+    pub fn with_requires(mut self, requires: Vec<&str>) -> Self {
+        self.requires = requires.into_iter().map(String::from).collect();
+        self
+    }
+
+    pub fn with_alias(mut self, alias: impl Into<String>) -> Self {
+        self.aliases.push(alias.into());
+        self
+    }
+
+    pub fn is_safe(&self) -> bool {
+        self.read_only
+    }
+
+    pub fn matches_tag(&self, tag: &str) -> bool {
+        self.tags.iter().any(|t| t.eq_ignore_ascii_case(tag))
+    }
+
+    pub fn matches_category(&self, category: ToolCategory) -> bool {
+        self.category == category
+    }
+}
+
+impl Default for ToolMetadata {
+    fn default() -> Self {
+        Self::new(ToolCategory::Custom)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolSchema {
     #[serde(rename = "type")]
@@ -51,6 +187,8 @@ pub struct ToolDefinition {
     pub name: String,
     pub description: String,
     pub parameters: ToolSchema,
+    #[serde(default)]
+    pub metadata: ToolMetadata,
 }
 
 impl ToolDefinition {
@@ -64,12 +202,27 @@ impl ToolDefinition {
             name,
             description,
             parameters: ToolSchema::default(),
+            metadata: ToolMetadata::default(),
         }
     }
 
     pub fn with_parameters(mut self, parameters: ToolSchema) -> Self {
         self.parameters = parameters;
         self
+    }
+
+    pub fn with_metadata(mut self, metadata: ToolMetadata) -> Self {
+        self.metadata = metadata;
+        self
+    }
+
+    pub fn with_category(mut self, category: ToolCategory) -> Self {
+        self.metadata.category = category;
+        self
+    }
+
+    pub fn is_safe(&self) -> bool {
+        self.metadata.read_only
     }
 }
 
@@ -121,6 +274,10 @@ pub trait Tool: Send + Sync {
 
     fn schema(&self) -> ToolSchema;
 
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::default()
+    }
+
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value>;
 
     fn definition(&self) -> ToolDefinition {
@@ -128,7 +285,16 @@ pub trait Tool: Send + Sync {
             name: self.name().to_string(),
             description: self.description().to_string(),
             parameters: self.schema(),
+            metadata: self.metadata(),
         }
+    }
+
+    fn category(&self) -> ToolCategory {
+        self.metadata().category
+    }
+
+    fn is_read_only(&self) -> bool {
+        self.metadata().read_only
     }
 }
 
@@ -182,5 +348,52 @@ impl ToolRegistry {
 
     pub fn contains(&self, name: &str) -> bool {
         self.tools.contains_key(name)
+    }
+
+    pub fn by_category(&self, category: ToolCategory) -> Vec<&dyn Tool> {
+        self.tools
+            .values()
+            .filter(|t| t.category() == category)
+            .map(|t| t.as_ref())
+            .collect()
+    }
+
+    pub fn by_tag(&self, tag: &str) -> Vec<&dyn Tool> {
+        self.tools
+            .values()
+            .filter(|t| t.metadata().matches_tag(tag))
+            .map(|t| t.as_ref())
+            .collect()
+    }
+
+    pub fn safe_tools(&self) -> Vec<&dyn Tool> {
+        self.tools
+            .values()
+            .filter(|t| t.is_read_only())
+            .map(|t| t.as_ref())
+            .collect()
+    }
+
+    pub fn by_priority(&self) -> Vec<&dyn Tool> {
+        let mut tools: Vec<_> = self.tools.values().map(|t| t.as_ref()).collect();
+        tools.sort_by(|a, b| b.metadata().priority.cmp(&a.metadata().priority));
+        tools
+    }
+
+    pub fn find_by_alias(&self, alias: &str) -> Option<&dyn Tool> {
+        self.tools
+            .values()
+            .find(|t| t.metadata().aliases.iter().any(|a| a == alias))
+            .map(|t| t.as_ref())
+    }
+
+    pub fn categories(&self) -> Vec<ToolCategory> {
+        let mut cats: Vec<_> = self.tools
+            .values()
+            .map(|t| t.category())
+            .collect();
+        cats.sort_by_key(|c| format!("{:?}", c));
+        cats.dedup();
+        cats
     }
 }

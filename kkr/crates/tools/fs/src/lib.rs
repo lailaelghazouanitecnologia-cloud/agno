@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use tokio::fs;
 
-use kkr_core::tool::{Tool, ToolContext, ToolSchema};
+use kkr_core::tool::{Tool, ToolCategory, ToolContext, ToolExample, ToolMetadata, ToolSchema};
 use kkr_core::Result;
 
 const DEFAULT_MAX_READ_SIZE: usize = 1024 * 1024;
@@ -72,6 +72,17 @@ impl Tool for ReadFileTool {
             }),
             required: vec!["path".to_string()],
         }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::FileSystem)
+            .with_tags(vec!["file", "read", "content"])
+            .with_read_only(true)
+            .with_priority(80)
+            .with_example(ToolExample::new(
+                "Read a config file",
+                json!({"path": "config.json"}),
+            ))
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
@@ -164,6 +175,13 @@ impl Tool for WriteFileTool {
             }),
             required: vec!["path".to_string(), "content".to_string()],
         }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::FileSystem)
+            .with_tags(vec!["file", "write", "create", "modify"])
+            .with_read_only(false)
+            .with_priority(75)
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
@@ -271,6 +289,14 @@ impl Tool for ListDirTool {
         }
     }
 
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::FileSystem)
+            .with_tags(vec!["directory", "list", "files", "browse"])
+            .with_read_only(true)
+            .with_priority(85)
+            .with_alias("ls")
+    }
+
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: ListParams = serde_json::from_value(params)
             .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
@@ -365,6 +391,14 @@ impl Tool for DeleteTool {
         }
     }
 
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::FileSystem)
+            .with_tags(vec!["file", "delete", "remove", "dangerous"])
+            .with_read_only(false)
+            .with_priority(40)
+            .with_alias("rm")
+    }
+
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: DeleteParams = serde_json::from_value(params)
             .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
@@ -436,6 +470,14 @@ impl Tool for CopyTool {
         }
     }
 
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::FileSystem)
+            .with_tags(vec!["file", "copy", "duplicate"])
+            .with_read_only(false)
+            .with_priority(60)
+            .with_alias("cp")
+    }
+
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: CopyParams = serde_json::from_value(params)
             .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
@@ -500,6 +542,14 @@ impl Tool for MoveTool {
             }),
             required: vec!["source".to_string(), "dest".to_string()],
         }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::FileSystem)
+            .with_tags(vec!["file", "move", "rename"])
+            .with_read_only(false)
+            .with_priority(55)
+            .with_alias("mv")
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
@@ -567,6 +617,13 @@ impl Tool for MkdirTool {
         }
     }
 
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::FileSystem)
+            .with_tags(vec!["directory", "create", "folder"])
+            .with_read_only(false)
+            .with_priority(65)
+    }
+
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: MkdirParams = serde_json::from_value(params)
             .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
@@ -616,6 +673,13 @@ impl Tool for ExistsTool {
             }),
             required: vec!["path".to_string()],
         }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::FileSystem)
+            .with_tags(vec!["file", "check", "exists"])
+            .with_read_only(true)
+            .with_priority(70)
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
@@ -670,6 +734,14 @@ impl Tool for FileInfoTool {
             }),
             required: vec!["path".to_string()],
         }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::FileSystem)
+            .with_tags(vec!["file", "info", "metadata", "stat"])
+            .with_read_only(true)
+            .with_priority(65)
+            .with_alias("stat")
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {

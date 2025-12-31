@@ -40,6 +40,9 @@ pub enum Error {
     #[error("VectorDB error: {0}")]
     VectorDB(String),
 
+    #[error("MCP error: {0}")]
+    Mcp(String),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 

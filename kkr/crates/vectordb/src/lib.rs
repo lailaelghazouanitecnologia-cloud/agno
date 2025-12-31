@@ -1260,6 +1260,572 @@ impl VectorDB for Weaviate {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub enum HybridSearchMode {
+    #[default]
+    RRF,
+    WeightedSum,
+    VectorOnly,
+    KeywordOnly,
+}
+
+#[derive(Debug, Clone)]
+pub struct HybridSearchConfig {
+    pub mode: HybridSearchMode,
+    pub vector_weight: f32,
+    pub keyword_weight: f32,
+    pub rrf_k: usize,
+}
+
+impl Default for HybridSearchConfig {
+    fn default() -> Self {
+        Self {
+            mode: HybridSearchMode::RRF,
+            vector_weight: 0.7,
+            keyword_weight: 0.3,
+            rrf_k: 60,
+        }
+    }
+}
+
+impl HybridSearchConfig {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn mode(mut self, mode: HybridSearchMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    pub fn vector_weight(mut self, weight: f32) -> Self {
+        self.vector_weight = weight;
+        self
+    }
+
+    pub fn keyword_weight(mut self, weight: f32) -> Self {
+        self.keyword_weight = weight;
+        self
+    }
+
+    pub fn rrf_k(mut self, k: usize) -> Self {
+        self.rrf_k = k;
+        self
+    }
+}
+
+#[async_trait]
+pub trait HybridVectorDB: VectorDB {
+    async fn hybrid_search(
+        &self,
+        collection: &str,
+        query_text: &str,
+        query_embedding: Vec<f32>,
+        top_k: usize,
+        config: HybridSearchConfig,
+    ) -> Result<Vec<SearchResult>>;
+
+    async fn keyword_search(
+        &self,
+        collection: &str,
+        query_text: &str,
+        top_k: usize,
+    ) -> Result<Vec<SearchResult>>;
+}
+
+fn rrf_fusion(
+    vector_results: Vec<SearchResult>,
+    keyword_results: Vec<SearchResult>,
+    top_k: usize,
+    k: usize,
+) -> Vec<SearchResult> {
+    let mut scores: HashMap<String, (f32, SearchResult)> = HashMap::new();
+
+    for (rank, result) in vector_results.into_iter().enumerate() {
+        let rrf_score = 1.0 / (k + rank + 1) as f32;
+        scores.insert(result.id.clone(), (rrf_score, result));
+    }
+
+    for (rank, result) in keyword_results.into_iter().enumerate() {
+        let rrf_score = 1.0 / (k + rank + 1) as f32;
+        scores
+            .entry(result.id.clone())
+            .and_modify(|(score, _)| *score += rrf_score)
+            .or_insert((rrf_score, result));
+    }
+
+    let mut combined: Vec<(f32, SearchResult)> = scores.into_values().collect();
+    combined.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    combined
+        .into_iter()
+        .take(top_k)
+        .map(|(score, mut result)| {
+            result.score = score;
+            result
+        })
+        .collect()
+}
+
+fn weighted_fusion(
+    vector_results: Vec<SearchResult>,
+    keyword_results: Vec<SearchResult>,
+    vector_weight: f32,
+    keyword_weight: f32,
+    top_k: usize,
+) -> Vec<SearchResult> {
+    let mut scores: HashMap<String, (f32, SearchResult)> = HashMap::new();
+
+    let vector_max = vector_results
+        .iter()
+        .map(|r| r.score)
+        .fold(0.0_f32, f32::max);
+    let keyword_max = keyword_results
+        .iter()
+        .map(|r| r.score)
+        .fold(0.0_f32, f32::max);
+
+    for result in vector_results {
+        let normalized = if vector_max > 0.0 {
+            result.score / vector_max
+        } else {
+            0.0
+        };
+        let weighted = normalized * vector_weight;
+        scores.insert(result.id.clone(), (weighted, result));
+    }
+
+    for result in keyword_results {
+        let normalized = if keyword_max > 0.0 {
+            result.score / keyword_max
+        } else {
+            0.0
+        };
+        let weighted = normalized * keyword_weight;
+        scores
+            .entry(result.id.clone())
+            .and_modify(|(score, _)| *score += weighted)
+            .or_insert((weighted, result));
+    }
+
+    let mut combined: Vec<(f32, SearchResult)> = scores.into_values().collect();
+    combined.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    combined
+        .into_iter()
+        .take(top_k)
+        .map(|(score, mut result)| {
+            result.score = score;
+            result
+        })
+        .collect()
+}
+
+pub struct BM25Index {
+    documents: HashMap<String, (String, HashMap<String, serde_json::Value>)>,
+    term_frequencies: HashMap<String, HashMap<String, usize>>,
+    doc_lengths: HashMap<String, usize>,
+    avg_doc_length: f32,
+    k1: f32,
+    b: f32,
+}
+
+impl Default for BM25Index {
+    fn default() -> Self {
+        Self {
+            documents: HashMap::new(),
+            term_frequencies: HashMap::new(),
+            doc_lengths: HashMap::new(),
+            avg_doc_length: 0.0,
+            k1: 1.5,
+            b: 0.75,
+        }
+    }
+}
+
+impl BM25Index {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_params(mut self, k1: f32, b: f32) -> Self {
+        self.k1 = k1;
+        self.b = b;
+        self
+    }
+
+    fn tokenize(text: &str) -> Vec<String> {
+        text.to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty() && s.len() > 1)
+            .map(|s| s.to_string())
+            .collect()
+    }
+
+    pub fn add_document(&mut self, id: String, content: String, metadata: HashMap<String, serde_json::Value>) {
+        let tokens = Self::tokenize(&content);
+        let doc_length = tokens.len();
+
+        let mut term_freq: HashMap<String, usize> = HashMap::new();
+        for token in tokens {
+            *term_freq.entry(token).or_insert(0) += 1;
+        }
+
+        self.documents.insert(id.clone(), (content, metadata));
+        self.term_frequencies.insert(id.clone(), term_freq);
+        self.doc_lengths.insert(id, doc_length);
+
+        let total_length: usize = self.doc_lengths.values().sum();
+        self.avg_doc_length = total_length as f32 / self.doc_lengths.len().max(1) as f32;
+    }
+
+    pub fn remove_document(&mut self, id: &str) {
+        self.documents.remove(id);
+        self.term_frequencies.remove(id);
+        self.doc_lengths.remove(id);
+
+        if !self.doc_lengths.is_empty() {
+            let total_length: usize = self.doc_lengths.values().sum();
+            self.avg_doc_length = total_length as f32 / self.doc_lengths.len() as f32;
+        } else {
+            self.avg_doc_length = 0.0;
+        }
+    }
+
+    pub fn search(&self, query: &str, top_k: usize) -> Vec<SearchResult> {
+        let query_tokens = Self::tokenize(query);
+        let n = self.documents.len() as f32;
+
+        let mut scores: Vec<(String, f32)> = self
+            .documents
+            .keys()
+            .map(|doc_id| {
+                let mut score = 0.0_f32;
+                let doc_length = *self.doc_lengths.get(doc_id).unwrap_or(&0) as f32;
+                let term_freq = self.term_frequencies.get(doc_id);
+
+                for token in &query_tokens {
+                    let df = self
+                        .term_frequencies
+                        .values()
+                        .filter(|tf| tf.contains_key(token))
+                        .count() as f32;
+
+                    if df == 0.0 {
+                        continue;
+                    }
+
+                    let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
+
+                    let tf = term_freq
+                        .and_then(|tf| tf.get(token))
+                        .copied()
+                        .unwrap_or(0) as f32;
+
+                    let tf_component = (tf * (self.k1 + 1.0))
+                        / (tf + self.k1 * (1.0 - self.b + self.b * doc_length / self.avg_doc_length));
+
+                    score += idf * tf_component;
+                }
+
+                (doc_id.clone(), score)
+            })
+            .filter(|(_, score)| *score > 0.0)
+            .collect();
+
+        scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        scores
+            .into_iter()
+            .take(top_k)
+            .filter_map(|(id, score)| {
+                self.documents.get(&id).map(|(content, metadata)| SearchResult {
+                    id,
+                    content: content.clone(),
+                    score,
+                    metadata: metadata.clone(),
+                })
+            })
+            .collect()
+    }
+}
+
+pub struct HybridWrapper<V: VectorDB> {
+    vector_db: V,
+    bm25_indices: std::sync::RwLock<HashMap<String, BM25Index>>,
+}
+
+impl<V: VectorDB> HybridWrapper<V> {
+    pub fn new(vector_db: V) -> Self {
+        Self {
+            vector_db,
+            bm25_indices: std::sync::RwLock::new(HashMap::new()),
+        }
+    }
+
+    pub fn inner(&self) -> &V {
+        &self.vector_db
+    }
+}
+
+#[async_trait]
+impl<V: VectorDB + 'static> VectorDB for HybridWrapper<V> {
+    fn name(&self) -> &str {
+        self.vector_db.name()
+    }
+
+    async fn create_collection(&self, name: &str, dimensions: usize) -> Result<()> {
+        let result = self.vector_db.create_collection(name, dimensions).await;
+        if result.is_ok() {
+            let mut indices = self.bm25_indices.write().unwrap();
+            indices.insert(name.to_string(), BM25Index::new());
+        }
+        result
+    }
+
+    async fn delete_collection(&self, name: &str) -> Result<()> {
+        let result = self.vector_db.delete_collection(name).await;
+        if result.is_ok() {
+            let mut indices = self.bm25_indices.write().unwrap();
+            indices.remove(name);
+        }
+        result
+    }
+
+    async fn upsert(&self, collection: &str, documents: Vec<Document>) -> Result<()> {
+        {
+            let mut indices = self.bm25_indices.write().unwrap();
+            let index = indices.entry(collection.to_string()).or_insert_with(BM25Index::new);
+            for doc in &documents {
+                index.add_document(doc.id.clone(), doc.content.clone(), doc.metadata.clone());
+            }
+        }
+        self.vector_db.upsert(collection, documents).await
+    }
+
+    async fn search(
+        &self,
+        collection: &str,
+        query_embedding: Vec<f32>,
+        top_k: usize,
+    ) -> Result<Vec<SearchResult>> {
+        self.vector_db.search(collection, query_embedding, top_k).await
+    }
+
+    async fn delete(&self, collection: &str, ids: Vec<String>) -> Result<()> {
+        {
+            let mut indices = self.bm25_indices.write().unwrap();
+            if let Some(index) = indices.get_mut(collection) {
+                for id in &ids {
+                    index.remove_document(id);
+                }
+            }
+        }
+        self.vector_db.delete(collection, ids).await
+    }
+}
+
+#[async_trait]
+impl<V: VectorDB + 'static> HybridVectorDB for HybridWrapper<V> {
+    async fn keyword_search(
+        &self,
+        collection: &str,
+        query_text: &str,
+        top_k: usize,
+    ) -> Result<Vec<SearchResult>> {
+        let indices = self.bm25_indices.read().unwrap();
+        let results = indices
+            .get(collection)
+            .map(|index| index.search(query_text, top_k))
+            .unwrap_or_default();
+        Ok(results)
+    }
+
+    async fn hybrid_search(
+        &self,
+        collection: &str,
+        query_text: &str,
+        query_embedding: Vec<f32>,
+        top_k: usize,
+        config: HybridSearchConfig,
+    ) -> Result<Vec<SearchResult>> {
+        match config.mode {
+            HybridSearchMode::VectorOnly => {
+                self.vector_db.search(collection, query_embedding, top_k).await
+            }
+            HybridSearchMode::KeywordOnly => {
+                self.keyword_search(collection, query_text, top_k).await
+            }
+            HybridSearchMode::RRF => {
+                let fetch_k = top_k * 3;
+                let vector_results = self.vector_db.search(collection, query_embedding, fetch_k).await?;
+                let keyword_results = self.keyword_search(collection, query_text, fetch_k).await?;
+                Ok(rrf_fusion(vector_results, keyword_results, top_k, config.rrf_k))
+            }
+            HybridSearchMode::WeightedSum => {
+                let fetch_k = top_k * 3;
+                let vector_results = self.vector_db.search(collection, query_embedding, fetch_k).await?;
+                let keyword_results = self.keyword_search(collection, query_text, fetch_k).await?;
+                Ok(weighted_fusion(
+                    vector_results,
+                    keyword_results,
+                    config.vector_weight,
+                    config.keyword_weight,
+                    top_k,
+                ))
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl HybridVectorDB for Qdrant {
+    async fn keyword_search(
+        &self,
+        collection: &str,
+        query_text: &str,
+        top_k: usize,
+    ) -> Result<Vec<SearchResult>> {
+        let url = format!(
+            "{}/collections/{}/points/scroll",
+            self.config.base_url, collection
+        );
+
+        #[derive(Debug, Serialize)]
+        struct ScrollRequest {
+            limit: usize,
+            with_payload: bool,
+            filter: serde_json::Value,
+        }
+
+        let filter = serde_json::json!({
+            "must": [{
+                "key": "content",
+                "match": {
+                    "text": query_text
+                }
+            }]
+        });
+
+        let body = ScrollRequest {
+            limit: top_k,
+            with_payload: true,
+            filter,
+        };
+
+        let mut request = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .json(&body);
+
+        for (key, value) in self.auth_headers() {
+            request = request.header(key, value);
+        }
+
+        let response = request
+            .send()
+            .await
+            .map_err(|e| kkr_core::Error::VectorDB(format!("Request failed: {}", e)))?;
+
+        #[derive(Debug, Deserialize)]
+        struct ScrollResponse {
+            result: ScrollResult,
+        }
+
+        #[derive(Debug, Deserialize)]
+        struct ScrollResult {
+            points: Vec<ScrollPoint>,
+        }
+
+        #[derive(Debug, Deserialize)]
+        struct ScrollPoint {
+            id: serde_json::Value,
+            payload: Option<HashMap<String, serde_json::Value>>,
+        }
+
+        let status = response.status();
+        let body_text = response
+            .text()
+            .await
+            .map_err(|e| kkr_core::Error::VectorDB(format!("Failed to read response: {}", e)))?;
+
+        if !status.is_success() {
+            return Err(kkr_core::Error::VectorDB(format!(
+                "Keyword search failed: {}",
+                body_text
+            )));
+        }
+
+        let scroll_response: ScrollResponse = serde_json::from_str(&body_text)
+            .map_err(|e| kkr_core::Error::VectorDB(format!("Failed to parse response: {}", e)))?;
+
+        Ok(scroll_response
+            .result
+            .points
+            .into_iter()
+            .enumerate()
+            .map(|(idx, p)| {
+                let mut metadata = p.payload.unwrap_or_default();
+                let content = metadata
+                    .remove("content")
+                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+                    .unwrap_or_default();
+
+                let id = match p.id {
+                    serde_json::Value::String(s) => s,
+                    serde_json::Value::Number(n) => n.to_string(),
+                    _ => "".to_string(),
+                };
+
+                SearchResult {
+                    id,
+                    content,
+                    score: 1.0 / (idx + 1) as f32,
+                    metadata,
+                }
+            })
+            .collect())
+    }
+
+    async fn hybrid_search(
+        &self,
+        collection: &str,
+        query_text: &str,
+        query_embedding: Vec<f32>,
+        top_k: usize,
+        config: HybridSearchConfig,
+    ) -> Result<Vec<SearchResult>> {
+        match config.mode {
+            HybridSearchMode::VectorOnly => {
+                self.search(collection, query_embedding, top_k).await
+            }
+            HybridSearchMode::KeywordOnly => {
+                self.keyword_search(collection, query_text, top_k).await
+            }
+            HybridSearchMode::RRF | HybridSearchMode::WeightedSum => {
+                let fetch_k = top_k * 3;
+                let vector_results = self.search(collection, query_embedding.clone(), fetch_k).await?;
+                let keyword_results = self.keyword_search(collection, query_text, fetch_k).await?;
+
+                match config.mode {
+                    HybridSearchMode::RRF => {
+                        Ok(rrf_fusion(vector_results, keyword_results, top_k, config.rrf_k))
+                    }
+                    HybridSearchMode::WeightedSum => Ok(weighted_fusion(
+                        vector_results,
+                        keyword_results,
+                        config.vector_weight,
+                        config.keyword_weight,
+                        top_k,
+                    )),
+                    _ => unreachable!(),
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1289,5 +1855,119 @@ mod tests {
 
         let chroma = ChromaDBConfig::default();
         assert_eq!(chroma.base_url, "http://localhost:8000");
+    }
+
+    #[test]
+    fn test_bm25_index() {
+        let mut index = BM25Index::new();
+
+        index.add_document(
+            "doc1".to_string(),
+            "The quick brown fox jumps over the lazy dog".to_string(),
+            HashMap::new(),
+        );
+        index.add_document(
+            "doc2".to_string(),
+            "A quick brown dog runs in the park".to_string(),
+            HashMap::new(),
+        );
+        index.add_document(
+            "doc3".to_string(),
+            "The lazy cat sleeps all day".to_string(),
+            HashMap::new(),
+        );
+
+        let results = index.search("quick brown", 3);
+        assert!(!results.is_empty());
+        assert!(results[0].id == "doc1" || results[0].id == "doc2");
+
+        let results = index.search("lazy cat", 3);
+        assert!(!results.is_empty());
+        assert_eq!(results[0].id, "doc3");
+    }
+
+    #[test]
+    fn test_bm25_tokenize() {
+        let tokens = BM25Index::tokenize("Hello, World! This is a TEST.");
+        assert!(tokens.contains(&"hello".to_string()));
+        assert!(tokens.contains(&"world".to_string()));
+        assert!(tokens.contains(&"test".to_string()));
+        assert!(!tokens.contains(&"a".to_string()));
+    }
+
+    #[test]
+    fn test_rrf_fusion() {
+        let vector_results = vec![
+            SearchResult {
+                id: "doc1".to_string(),
+                content: "Doc 1".to_string(),
+                score: 0.9,
+                metadata: HashMap::new(),
+            },
+            SearchResult {
+                id: "doc2".to_string(),
+                content: "Doc 2".to_string(),
+                score: 0.8,
+                metadata: HashMap::new(),
+            },
+        ];
+
+        let keyword_results = vec![
+            SearchResult {
+                id: "doc2".to_string(),
+                content: "Doc 2".to_string(),
+                score: 0.95,
+                metadata: HashMap::new(),
+            },
+            SearchResult {
+                id: "doc3".to_string(),
+                content: "Doc 3".to_string(),
+                score: 0.7,
+                metadata: HashMap::new(),
+            },
+        ];
+
+        let fused = rrf_fusion(vector_results, keyword_results, 3, 60);
+        assert_eq!(fused.len(), 3);
+        assert_eq!(fused[0].id, "doc2");
+    }
+
+    #[test]
+    fn test_weighted_fusion() {
+        let vector_results = vec![
+            SearchResult {
+                id: "doc1".to_string(),
+                content: "Doc 1".to_string(),
+                score: 1.0,
+                metadata: HashMap::new(),
+            },
+        ];
+
+        let keyword_results = vec![
+            SearchResult {
+                id: "doc2".to_string(),
+                content: "Doc 2".to_string(),
+                score: 1.0,
+                metadata: HashMap::new(),
+            },
+        ];
+
+        let fused = weighted_fusion(vector_results, keyword_results, 0.7, 0.3, 2);
+        assert_eq!(fused.len(), 2);
+        assert_eq!(fused[0].id, "doc1");
+        assert!((fused[0].score - 0.7).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_hybrid_search_config() {
+        let config = HybridSearchConfig::new()
+            .mode(HybridSearchMode::WeightedSum)
+            .vector_weight(0.8)
+            .keyword_weight(0.2)
+            .rrf_k(100);
+
+        assert!((config.vector_weight - 0.8).abs() < 0.01);
+        assert!((config.keyword_weight - 0.2).abs() < 0.01);
+        assert_eq!(config.rrf_k, 100);
     }
 }

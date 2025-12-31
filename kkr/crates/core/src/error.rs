@@ -31,6 +31,9 @@ pub enum Error {
     #[error("Provider error: {0}")]
     Provider(String),
 
+    #[error("Config error: {0}")]
+    Config(String),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 

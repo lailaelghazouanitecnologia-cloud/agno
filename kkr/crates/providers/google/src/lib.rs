@@ -10,21 +10,65 @@ use kkr_core::{Message, Result, Role, ToolCall};
 #[derive(Debug, Clone, Copy, Default)]
 pub enum GeminiModel {
     #[default]
+    Gemini25Flash,
+    Gemini25Pro,
+    Gemini25FlashLite,
+    Gemini20Flash,
+    Gemini20FlashLite,
+    Gemini3Pro,
+    Gemini3Flash,
     Gemini15Pro,
     Gemini15Flash,
-    Gemini15Flash8B,
-    Gemini20Flash,
-    GeminiPro,
 }
 
 impl GeminiModel {
     pub fn as_str(&self) -> &'static str {
         match self {
+            GeminiModel::Gemini25Flash => "gemini-2.5-flash",
+            GeminiModel::Gemini25Pro => "gemini-2.5-pro",
+            GeminiModel::Gemini25FlashLite => "gemini-2.5-flash-lite",
+            GeminiModel::Gemini20Flash => "gemini-2.0-flash",
+            GeminiModel::Gemini20FlashLite => "gemini-2.0-flash-lite",
+            GeminiModel::Gemini3Pro => "gemini-3-pro",
+            GeminiModel::Gemini3Flash => "gemini-3-flash",
             GeminiModel::Gemini15Pro => "gemini-1.5-pro",
             GeminiModel::Gemini15Flash => "gemini-1.5-flash",
-            GeminiModel::Gemini15Flash8B => "gemini-1.5-flash-8b",
-            GeminiModel::Gemini20Flash => "gemini-2.0-flash-exp",
-            GeminiModel::GeminiPro => "gemini-pro",
+        }
+    }
+
+    pub fn is_reasoning_model(&self) -> bool {
+        matches!(
+            self,
+            GeminiModel::Gemini25Pro | GeminiModel::Gemini3Pro | GeminiModel::Gemini3Flash
+        )
+    }
+
+    pub fn max_output_tokens(&self) -> u32 {
+        match self {
+            GeminiModel::Gemini25Pro => 65536,
+            GeminiModel::Gemini25Flash | GeminiModel::Gemini25FlashLite => 8192,
+            GeminiModel::Gemini3Pro | GeminiModel::Gemini3Flash => 65536,
+            _ => 8192,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub enum ThinkingLevel {
+    #[default]
+    None,
+    Low,
+    Medium,
+    High,
+}
+
+impl ThinkingLevel {
+    pub fn as_str(&self) -> Option<&'static str> {
+        match self {
+            ThinkingLevel::None => None,
+            ThinkingLevel::Low => Some("low"),
+            ThinkingLevel::Medium => Some("medium"),
+            ThinkingLevel::High => Some("high"),
         }
     }
 }
@@ -33,8 +77,9 @@ impl GeminiModel {
 pub struct GoogleConfig {
     pub api_key: String,
     pub model: GeminiModel,
-    pub max_tokens: Option<u32>,
+    pub max_output_tokens: Option<u32>,
     pub temperature: Option<f32>,
+    pub thinking_level: ThinkingLevel,
 }
 
 impl GoogleConfig {
@@ -42,8 +87,9 @@ impl GoogleConfig {
         Self {
             api_key: api_key.into(),
             model: GeminiModel::default(),
-            max_tokens: None,
+            max_output_tokens: None,
             temperature: None,
+            thinking_level: ThinkingLevel::None,
         }
     }
 
@@ -59,13 +105,23 @@ impl GoogleConfig {
         self
     }
 
-    pub fn max_tokens(mut self, max_tokens: u32) -> Self {
-        self.max_tokens = Some(max_tokens);
+    pub fn max_output_tokens(mut self, tokens: u32) -> Self {
+        self.max_output_tokens = Some(tokens);
         self
+    }
+
+    #[deprecated(since = "0.2.0", note = "Use max_output_tokens instead")]
+    pub fn max_tokens(self, tokens: u32) -> Self {
+        self.max_output_tokens(tokens)
     }
 
     pub fn temperature(mut self, temperature: f32) -> Self {
         self.temperature = Some(temperature);
+        self
+    }
+
+    pub fn thinking_level(mut self, level: ThinkingLevel) -> Self {
+        self.thinking_level = level;
         self
     }
 }
@@ -182,14 +238,27 @@ impl Provider for Google {
     ) -> Result<ProviderResponse> {
         let (system_instruction, contents) = self.convert_messages(&messages);
 
-        let mut generation_config = ApiGenerationConfig {
-            max_output_tokens: self.config.max_tokens,
-            temperature: self.config.temperature,
+        let max_tokens = self
+            .config
+            .max_output_tokens
+            .unwrap_or_else(|| self.config.model.max_output_tokens());
+
+        let thinking_config = if self.config.model.is_reasoning_model() {
+            self.config
+                .thinking_level
+                .as_str()
+                .map(|level| ApiThinkingConfig {
+                    thinking_budget: Some(level.to_string()),
+                })
+        } else {
+            None
         };
 
-        if generation_config.max_output_tokens.is_none() {
-            generation_config.max_output_tokens = Some(4096);
-        }
+        let generation_config = ApiGenerationConfig {
+            max_output_tokens: Some(max_tokens),
+            temperature: self.config.temperature,
+            thinking_config,
+        };
 
         let mut request = ApiRequest {
             contents,
@@ -207,15 +276,15 @@ impl Provider for Google {
         }
 
         let url = format!(
-            "{}/models/{}:generateContent?key={}",
+            "{}/models/{}:generateContent",
             Self::BASE_URL,
-            self.config.model.as_str(),
-            self.config.api_key
+            self.config.model.as_str()
         );
 
         let response = self
             .client
             .post(&url)
+            .header("x-goog-api-key", &self.config.api_key)
             .header("Content-Type", "application/json")
             .json(&request)
             .send()
@@ -268,13 +337,14 @@ impl Provider for Google {
             Some("STOP") => FinishReason::Stop,
             Some("MAX_TOKENS") => FinishReason::Length,
             Some("SAFETY") => FinishReason::ContentFilter,
+            Some("RECITATION") => FinishReason::ContentFilter,
             _ if !tool_calls.is_empty() => FinishReason::ToolCalls,
             _ => FinishReason::Stop,
         };
 
         let usage = api_response.usage_metadata.map(|u| Usage {
             prompt_tokens: u.prompt_token_count,
-            completion_tokens: u.candidates_token_count,
+            completion_tokens: u.candidates_token_count.unwrap_or(0),
             total_tokens: u.total_token_count,
         });
 
@@ -299,9 +369,9 @@ impl Provider for Google {
 #[derive(Debug, Serialize)]
 struct ApiRequest {
     contents: Vec<ApiContent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "systemInstruction")]
     system_instruction: Option<ApiSystemInstruction>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "generationConfig")]
     generation_config: Option<ApiGenerationConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<ApiTool>>,
@@ -348,14 +418,23 @@ struct ApiFunctionResponse {
 
 #[derive(Debug, Serialize)]
 struct ApiGenerationConfig {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "maxOutputTokens")]
     max_output_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "thinkingConfig")]
+    thinking_config: Option<ApiThinkingConfig>,
+}
+
+#[derive(Debug, Serialize)]
+struct ApiThinkingConfig {
+    #[serde(skip_serializing_if = "Option::is_none", rename = "thinkingBudget")]
+    thinking_budget: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 struct ApiTool {
+    #[serde(rename = "functionDeclarations")]
     function_declarations: Vec<ApiFunctionDeclaration>,
 }
 
@@ -390,7 +469,7 @@ struct ApiUsageMetadata {
     #[serde(rename = "promptTokenCount")]
     prompt_token_count: u32,
     #[serde(rename = "candidatesTokenCount")]
-    candidates_token_count: u32,
+    candidates_token_count: Option<u32>,
     #[serde(rename = "totalTokenCount")]
     total_token_count: u32,
 }
@@ -401,18 +480,27 @@ mod tests {
 
     #[test]
     fn test_model_str() {
-        assert_eq!(GeminiModel::Gemini15Pro.as_str(), "gemini-1.5-pro");
-        assert_eq!(GeminiModel::Gemini20Flash.as_str(), "gemini-2.0-flash-exp");
+        assert_eq!(GeminiModel::Gemini25Flash.as_str(), "gemini-2.5-flash");
+        assert_eq!(GeminiModel::Gemini25Pro.as_str(), "gemini-2.5-pro");
+        assert_eq!(GeminiModel::Gemini3Pro.as_str(), "gemini-3-pro");
+    }
+
+    #[test]
+    fn test_reasoning_models() {
+        assert!(GeminiModel::Gemini25Pro.is_reasoning_model());
+        assert!(GeminiModel::Gemini3Pro.is_reasoning_model());
+        assert!(!GeminiModel::Gemini20Flash.is_reasoning_model());
     }
 
     #[test]
     fn test_config_builder() {
         let config = GoogleConfig::new("test-key")
-            .model(GeminiModel::Gemini15Flash)
-            .max_tokens(8192)
-            .temperature(0.5);
+            .model(GeminiModel::Gemini25Flash)
+            .max_output_tokens(8192)
+            .temperature(0.5)
+            .thinking_level(ThinkingLevel::High);
 
-        assert_eq!(config.max_tokens, Some(8192));
+        assert_eq!(config.max_output_tokens, Some(8192));
         assert_eq!(config.temperature, Some(0.5));
     }
 }

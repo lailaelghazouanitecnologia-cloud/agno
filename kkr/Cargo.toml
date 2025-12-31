@@ -25,6 +25,8 @@ members = [
     "crates/tools/email",
     "crates/tools/discord",
     "crates/tools/finance",
+    "crates/embedders",
+    "crates/vectordb",
     "crates/sdk/guardrails",
     "crates/sdk/tendencies",
     "crates/bindings/python",

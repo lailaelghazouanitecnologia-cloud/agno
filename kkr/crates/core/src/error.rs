@@ -34,6 +34,12 @@ pub enum Error {
     #[error("Config error: {0}")]
     Config(String),
 
+    #[error("Embedder error: {0}")]
+    Embedder(String),
+
+    #[error("VectorDB error: {0}")]
+    VectorDB(String),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 

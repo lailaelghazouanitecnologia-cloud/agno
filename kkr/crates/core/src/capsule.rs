@@ -114,7 +114,7 @@ impl Capsule {
     }
 
     /// Get conversation history
-    pub fn history(&self) -> Vec<&Message> {
+    pub fn history(&self) -> Vec<Message> {
         self.memory.messages()
     }
 

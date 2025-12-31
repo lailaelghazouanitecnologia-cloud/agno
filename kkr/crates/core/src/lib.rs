@@ -7,6 +7,7 @@ pub mod capsule;
 pub mod knowledge;
 pub mod memory;
 pub mod pipeline;
+pub mod session;
 pub mod tool;
 pub mod workspace;
 

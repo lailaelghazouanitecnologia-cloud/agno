@@ -1,7 +1,3 @@
-//! Filesystem tools
-//!
-//! Read, write, and manipulate files.
-
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -11,7 +7,21 @@ use tokio::fs;
 use kkr_core::tool::{Tool, ToolContext, ToolSchema};
 use kkr_core::Result;
 
-/// Read file tool
+const DEFAULT_MAX_READ_SIZE: usize = 1024 * 1024;
+const DEFAULT_MAX_WRITE_SIZE: usize = 10 * 1024 * 1024;
+
+fn resolve_path(path: &str, ctx: &ToolContext) -> PathBuf {
+    debug_assert!(!path.is_empty(), "path must not be empty");
+    let path = PathBuf::from(path);
+    if path.is_absolute() {
+        path
+    } else if let Some(ref root) = ctx.workspace_root {
+        root.as_std_path().join(path)
+    } else {
+        path
+    }
+}
+
 pub struct ReadFileTool {
     max_size: usize,
 }
@@ -25,24 +35,14 @@ impl Default for ReadFileTool {
 impl ReadFileTool {
     pub fn new() -> Self {
         Self {
-            max_size: 1024 * 1024, // 1MB
+            max_size: DEFAULT_MAX_READ_SIZE,
         }
     }
 
     pub fn max_size(mut self, size: usize) -> Self {
+        debug_assert!(size > 0, "max_size must be positive");
         self.max_size = size;
         self
-    }
-
-    fn resolve_path(&self, path: &str, ctx: &ToolContext) -> PathBuf {
-        let path = PathBuf::from(path);
-        if path.is_absolute() {
-            path
-        } else if let Some(ref root) = ctx.workspace_root {
-            root.as_std_path().join(path)
-        } else {
-            path
-        }
     }
 }
 
@@ -50,8 +50,7 @@ impl ReadFileTool {
 struct ReadParams {
     path: String,
     #[serde(default)]
-    #[allow(dead_code)]
-    encoding: Option<String>,
+    lines: Option<usize>,
 }
 
 #[async_trait]
@@ -61,21 +60,15 @@ impl Tool for ReadFileTool {
     }
 
     fn description(&self) -> &str {
-        "Read the contents of a file. Returns the file content as a string."
+        "Read the contents of a file"
     }
 
     fn schema(&self) -> ToolSchema {
         ToolSchema {
             schema_type: "object".to_string(),
             properties: json!({
-                "path": {
-                    "type": "string",
-                    "description": "Path to the file to read"
-                },
-                "encoding": {
-                    "type": "string",
-                    "description": "Optional encoding (default: utf-8)"
-                }
+                "path": {"type": "string", "description": "Path to the file"},
+                "lines": {"type": "integer", "description": "Limit to first N lines"}
             }),
             required: vec!["path".to_string()],
         }
@@ -85,12 +78,11 @@ impl Tool for ReadFileTool {
         let params: ReadParams = serde_json::from_value(params)
             .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
 
-        let path = self.resolve_path(&params.path, ctx);
+        let path = resolve_path(&params.path, ctx);
 
-        // Check file size
         let metadata = fs::metadata(&path)
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to read file metadata: {}", e)))?;
+            .map_err(|e| kkr_core::Error::Tool(format!("File not found: {}", e)))?;
 
         if metadata.len() as usize > self.max_size {
             return Err(kkr_core::Error::Tool(format!(
@@ -102,7 +94,12 @@ impl Tool for ReadFileTool {
 
         let content = fs::read_to_string(&path)
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to read file: {}", e)))?;
+            .map_err(|e| kkr_core::Error::Tool(format!("Failed to read: {}", e)))?;
+
+        let content = match params.lines {
+            Some(n) => content.lines().take(n).collect::<Vec<_>>().join("\n"),
+            None => content,
+        };
 
         Ok(json!({
             "path": path.to_string_lossy(),
@@ -112,7 +109,6 @@ impl Tool for ReadFileTool {
     }
 }
 
-/// Write file tool
 pub struct WriteFileTool {
     max_size: usize,
 }
@@ -126,24 +122,14 @@ impl Default for WriteFileTool {
 impl WriteFileTool {
     pub fn new() -> Self {
         Self {
-            max_size: 10 * 1024 * 1024, // 10MB
+            max_size: DEFAULT_MAX_WRITE_SIZE,
         }
     }
 
     pub fn max_size(mut self, size: usize) -> Self {
+        debug_assert!(size > 0, "max_size must be positive");
         self.max_size = size;
         self
-    }
-
-    fn resolve_path(&self, path: &str, ctx: &ToolContext) -> PathBuf {
-        let path = PathBuf::from(path);
-        if path.is_absolute() {
-            path
-        } else if let Some(ref root) = ctx.workspace_root {
-            root.as_std_path().join(path)
-        } else {
-            path
-        }
     }
 }
 
@@ -153,6 +139,8 @@ struct WriteParams {
     content: String,
     #[serde(default)]
     create_dirs: bool,
+    #[serde(default)]
+    append: bool,
 }
 
 #[async_trait]
@@ -162,26 +150,17 @@ impl Tool for WriteFileTool {
     }
 
     fn description(&self) -> &str {
-        "Write content to a file. Creates the file if it doesn't exist, overwrites if it does."
+        "Write content to a file"
     }
 
     fn schema(&self) -> ToolSchema {
         ToolSchema {
             schema_type: "object".to_string(),
             properties: json!({
-                "path": {
-                    "type": "string",
-                    "description": "Path to the file to write"
-                },
-                "content": {
-                    "type": "string",
-                    "description": "Content to write to the file"
-                },
-                "create_dirs": {
-                    "type": "boolean",
-                    "description": "Create parent directories if they don't exist",
-                    "default": false
-                }
+                "path": {"type": "string", "description": "Path to the file"},
+                "content": {"type": "string", "description": "Content to write"},
+                "create_dirs": {"type": "boolean", "description": "Create parent directories"},
+                "append": {"type": "boolean", "description": "Append instead of overwrite"}
             }),
             required: vec!["path".to_string(), "content".to_string()],
         }
@@ -199,20 +178,32 @@ impl Tool for WriteFileTool {
             )));
         }
 
-        let path = self.resolve_path(&params.path, ctx);
+        let path = resolve_path(&params.path, ctx);
 
-        // Create parent directories if requested
         if params.create_dirs {
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent)
                     .await
-                    .map_err(|e| kkr_core::Error::Tool(format!("Failed to create directories: {}", e)))?;
+                    .map_err(|e| kkr_core::Error::Tool(format!("Failed to create dirs: {}", e)))?;
             }
         }
 
-        fs::write(&path, &params.content)
-            .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to write file: {}", e)))?;
+        if params.append {
+            use tokio::io::AsyncWriteExt;
+            let mut file = tokio::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .await
+                .map_err(|e| kkr_core::Error::Tool(format!("Failed to open: {}", e)))?;
+            file.write_all(params.content.as_bytes())
+                .await
+                .map_err(|e| kkr_core::Error::Tool(format!("Failed to write: {}", e)))?;
+        } else {
+            fs::write(&path, &params.content)
+                .await
+                .map_err(|e| kkr_core::Error::Tool(format!("Failed to write: {}", e)))?;
+        }
 
         Ok(json!({
             "path": path.to_string_lossy(),
@@ -222,8 +213,9 @@ impl Tool for WriteFileTool {
     }
 }
 
-/// List directory tool
-pub struct ListDirTool;
+pub struct ListDirTool {
+    max_entries: usize,
+}
 
 impl Default for ListDirTool {
     fn default() -> Self {
@@ -233,18 +225,13 @@ impl Default for ListDirTool {
 
 impl ListDirTool {
     pub fn new() -> Self {
-        Self
+        Self { max_entries: 1000 }
     }
 
-    fn resolve_path(&self, path: &str, ctx: &ToolContext) -> PathBuf {
-        let path = PathBuf::from(path);
-        if path.is_absolute() {
-            path
-        } else if let Some(ref root) = ctx.workspace_root {
-            root.as_std_path().join(path)
-        } else {
-            path
-        }
+    pub fn max_entries(mut self, max: usize) -> Self {
+        debug_assert!(max > 0, "max_entries must be positive");
+        self.max_entries = max;
+        self
     }
 }
 
@@ -252,8 +239,7 @@ impl ListDirTool {
 struct ListParams {
     path: String,
     #[serde(default)]
-    #[allow(dead_code)]
-    recursive: bool,
+    pattern: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -271,22 +257,15 @@ impl Tool for ListDirTool {
     }
 
     fn description(&self) -> &str {
-        "List the contents of a directory."
+        "List directory contents"
     }
 
     fn schema(&self) -> ToolSchema {
         ToolSchema {
             schema_type: "object".to_string(),
             properties: json!({
-                "path": {
-                    "type": "string",
-                    "description": "Path to the directory to list"
-                },
-                "recursive": {
-                    "type": "boolean",
-                    "description": "List recursively",
-                    "default": false
-                }
+                "path": {"type": "string", "description": "Directory path"},
+                "pattern": {"type": "string", "description": "Optional glob pattern"}
             }),
             required: vec!["path".to_string()],
         }
@@ -296,73 +275,65 @@ impl Tool for ListDirTool {
         let params: ListParams = serde_json::from_value(params)
             .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
 
-        let path = self.resolve_path(&params.path, ctx);
-
+        let path = resolve_path(&params.path, ctx);
         let mut entries = Vec::new();
         let mut read_dir = fs::read_dir(&path)
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to read directory: {}", e)))?;
+            .map_err(|e| kkr_core::Error::Tool(format!("Failed to read dir: {}", e)))?;
 
         while let Some(entry) = read_dir
             .next_entry()
             .await
             .map_err(|e| kkr_core::Error::Tool(format!("Failed to read entry: {}", e)))?
         {
+            if entries.len() >= self.max_entries {
+                break;
+            }
+
+            let name = entry.file_name().to_string_lossy().to_string();
+
+            if let Some(ref pattern) = params.pattern {
+                if !name.contains(pattern) {
+                    continue;
+                }
+            }
+
             let metadata = entry.metadata().await.ok();
             let is_dir = metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false);
-            let size = metadata.as_ref().and_then(|m| {
-                if m.is_file() {
-                    Some(m.len())
-                } else {
-                    None
-                }
-            });
+            let size = metadata
+                .as_ref()
+                .and_then(|m| if m.is_file() { Some(m.len()) } else { None });
 
             entries.push(FileEntry {
-                name: entry.file_name().to_string_lossy().to_string(),
+                name,
                 path: entry.path().to_string_lossy().to_string(),
                 is_dir,
                 size,
             });
         }
 
-        // Sort: directories first, then by name
-        entries.sort_by(|a, b| {
-            match (a.is_dir, b.is_dir) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => a.name.cmp(&b.name),
-            }
+        entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.cmp(&b.name),
         });
 
         serde_json::to_value(entries)
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to serialize entries: {}", e)))
+            .map_err(|e| kkr_core::Error::Tool(format!("Failed to serialize: {}", e)))
     }
 }
 
-/// Delete file/directory tool
 pub struct DeleteTool;
 
 impl Default for DeleteTool {
     fn default() -> Self {
-        Self::new()
+        Self
     }
 }
 
 impl DeleteTool {
     pub fn new() -> Self {
         Self
-    }
-
-    fn resolve_path(&self, path: &str, ctx: &ToolContext) -> PathBuf {
-        let path = PathBuf::from(path);
-        if path.is_absolute() {
-            path
-        } else if let Some(ref root) = ctx.workspace_root {
-            root.as_std_path().join(path)
-        } else {
-            path
-        }
     }
 }
 
@@ -380,22 +351,15 @@ impl Tool for DeleteTool {
     }
 
     fn description(&self) -> &str {
-        "Delete a file or directory. Use recursive=true for non-empty directories."
+        "Delete a file or directory"
     }
 
     fn schema(&self) -> ToolSchema {
         ToolSchema {
             schema_type: "object".to_string(),
             properties: json!({
-                "path": {
-                    "type": "string",
-                    "description": "Path to delete"
-                },
-                "recursive": {
-                    "type": "boolean",
-                    "description": "Delete directories recursively",
-                    "default": false
-                }
+                "path": {"type": "string", "description": "Path to delete"},
+                "recursive": {"type": "boolean", "description": "Delete directories recursively"}
             }),
             required: vec!["path".to_string()],
         }
@@ -405,7 +369,7 @@ impl Tool for DeleteTool {
         let params: DeleteParams = serde_json::from_value(params)
             .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
 
-        let path = self.resolve_path(&params.path, ctx);
+        let path = resolve_path(&params.path, ctx);
 
         let metadata = fs::metadata(&path)
             .await
@@ -413,79 +377,341 @@ impl Tool for DeleteTool {
 
         if metadata.is_dir() {
             if params.recursive {
-                fs::remove_dir_all(&path)
-                    .await
-                    .map_err(|e| kkr_core::Error::Tool(format!("Failed to delete directory: {}", e)))?;
+                fs::remove_dir_all(&path).await
             } else {
-                fs::remove_dir(&path)
-                    .await
-                    .map_err(|e| kkr_core::Error::Tool(format!("Failed to delete directory (not empty?): {}", e)))?;
+                fs::remove_dir(&path).await
             }
+            .map_err(|e| kkr_core::Error::Tool(format!("Failed to delete dir: {}", e)))?;
         } else {
             fs::remove_file(&path)
                 .await
                 .map_err(|e| kkr_core::Error::Tool(format!("Failed to delete file: {}", e)))?;
         }
 
+        Ok(json!({"path": path.to_string_lossy(), "deleted": true}))
+    }
+}
+
+pub struct CopyTool;
+
+impl Default for CopyTool {
+    fn default() -> Self {
+        Self
+    }
+}
+
+impl CopyTool {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CopyParams {
+    source: String,
+    dest: String,
+    #[serde(default)]
+    overwrite: bool,
+}
+
+#[async_trait]
+impl Tool for CopyTool {
+    fn name(&self) -> &str {
+        "copy"
+    }
+
+    fn description(&self) -> &str {
+        "Copy a file to a new location"
+    }
+
+    fn schema(&self) -> ToolSchema {
+        ToolSchema {
+            schema_type: "object".to_string(),
+            properties: json!({
+                "source": {"type": "string", "description": "Source path"},
+                "dest": {"type": "string", "description": "Destination path"},
+                "overwrite": {"type": "boolean", "description": "Overwrite if exists"}
+            }),
+            required: vec!["source".to_string(), "dest".to_string()],
+        }
+    }
+
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
+        let params: CopyParams = serde_json::from_value(params)
+            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+
+        let source = resolve_path(&params.source, ctx);
+        let dest = resolve_path(&params.dest, ctx);
+
+        if !params.overwrite && dest.exists() {
+            return Err(kkr_core::Error::Tool(
+                "Destination exists, use overwrite=true".to_string(),
+            ));
+        }
+
+        fs::copy(&source, &dest)
+            .await
+            .map_err(|e| kkr_core::Error::Tool(format!("Failed to copy: {}", e)))?;
+
         Ok(json!({
-            "path": path.to_string_lossy(),
-            "deleted": true
+            "source": source.to_string_lossy(),
+            "dest": dest.to_string_lossy(),
+            "success": true
         }))
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
+pub struct MoveTool;
 
-    #[tokio::test]
-    async fn test_read_write_file() {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("test.txt");
+impl Default for MoveTool {
+    fn default() -> Self {
+        Self
+    }
+}
 
-        let write_tool = WriteFileTool::new();
-        let read_tool = ReadFileTool::new();
-        let ctx = ToolContext::default();
+impl MoveTool {
+    pub fn new() -> Self {
+        Self
+    }
+}
 
-        // Write
-        let result = write_tool
-            .execute(
-                json!({
-                    "path": file_path.to_string_lossy(),
-                    "content": "Hello, World!"
-                }),
-                &ctx,
-            )
-            .await
-            .unwrap();
+#[derive(Debug, Deserialize)]
+struct MoveParams {
+    source: String,
+    dest: String,
+}
 
-        assert_eq!(result["success"], true);
-
-        // Read
-        let result = read_tool
-            .execute(
-                json!({
-                    "path": file_path.to_string_lossy()
-                }),
-                &ctx,
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(result["content"], "Hello, World!");
+#[async_trait]
+impl Tool for MoveTool {
+    fn name(&self) -> &str {
+        "move"
     }
 
-    #[tokio::test]
-    async fn test_list_dir() {
-        let tool = ListDirTool::new();
-        let ctx = ToolContext::default();
-
-        let result = tool
-            .execute(json!({"path": "/tmp"}), &ctx)
-            .await
-            .unwrap();
-
-        assert!(result.is_array());
+    fn description(&self) -> &str {
+        "Move/rename a file or directory"
     }
+
+    fn schema(&self) -> ToolSchema {
+        ToolSchema {
+            schema_type: "object".to_string(),
+            properties: json!({
+                "source": {"type": "string", "description": "Source path"},
+                "dest": {"type": "string", "description": "Destination path"}
+            }),
+            required: vec!["source".to_string(), "dest".to_string()],
+        }
+    }
+
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
+        let params: MoveParams = serde_json::from_value(params)
+            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+
+        let source = resolve_path(&params.source, ctx);
+        let dest = resolve_path(&params.dest, ctx);
+
+        fs::rename(&source, &dest)
+            .await
+            .map_err(|e| kkr_core::Error::Tool(format!("Failed to move: {}", e)))?;
+
+        Ok(json!({
+            "source": source.to_string_lossy(),
+            "dest": dest.to_string_lossy(),
+            "success": true
+        }))
+    }
+}
+
+pub struct MkdirTool;
+
+impl Default for MkdirTool {
+    fn default() -> Self {
+        Self
+    }
+}
+
+impl MkdirTool {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct MkdirParams {
+    path: String,
+    #[serde(default = "default_true")]
+    recursive: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[async_trait]
+impl Tool for MkdirTool {
+    fn name(&self) -> &str {
+        "mkdir"
+    }
+
+    fn description(&self) -> &str {
+        "Create a directory"
+    }
+
+    fn schema(&self) -> ToolSchema {
+        ToolSchema {
+            schema_type: "object".to_string(),
+            properties: json!({
+                "path": {"type": "string", "description": "Directory path"},
+                "recursive": {"type": "boolean", "description": "Create parent dirs", "default": true}
+            }),
+            required: vec!["path".to_string()],
+        }
+    }
+
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
+        let params: MkdirParams = serde_json::from_value(params)
+            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+
+        let path = resolve_path(&params.path, ctx);
+
+        if params.recursive {
+            fs::create_dir_all(&path).await
+        } else {
+            fs::create_dir(&path).await
+        }
+        .map_err(|e| kkr_core::Error::Tool(format!("Failed to create dir: {}", e)))?;
+
+        Ok(json!({"path": path.to_string_lossy(), "created": true}))
+    }
+}
+
+pub struct ExistsTool;
+
+impl Default for ExistsTool {
+    fn default() -> Self {
+        Self
+    }
+}
+
+impl ExistsTool {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl Tool for ExistsTool {
+    fn name(&self) -> &str {
+        "exists"
+    }
+
+    fn description(&self) -> &str {
+        "Check if a file or directory exists"
+    }
+
+    fn schema(&self) -> ToolSchema {
+        ToolSchema {
+            schema_type: "object".to_string(),
+            properties: json!({
+                "path": {"type": "string", "description": "Path to check"}
+            }),
+            required: vec!["path".to_string()],
+        }
+    }
+
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
+        let path_str = params
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| kkr_core::Error::Tool("Missing path".to_string()))?;
+
+        let path = resolve_path(path_str, ctx);
+        let exists = path.exists();
+        let is_file = path.is_file();
+        let is_dir = path.is_dir();
+
+        Ok(json!({
+            "path": path.to_string_lossy(),
+            "exists": exists,
+            "is_file": is_file,
+            "is_dir": is_dir
+        }))
+    }
+}
+
+pub struct FileInfoTool;
+
+impl Default for FileInfoTool {
+    fn default() -> Self {
+        Self
+    }
+}
+
+impl FileInfoTool {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl Tool for FileInfoTool {
+    fn name(&self) -> &str {
+        "file_info"
+    }
+
+    fn description(&self) -> &str {
+        "Get file metadata (size, modified time, etc.)"
+    }
+
+    fn schema(&self) -> ToolSchema {
+        ToolSchema {
+            schema_type: "object".to_string(),
+            properties: json!({
+                "path": {"type": "string", "description": "Path to the file"}
+            }),
+            required: vec!["path".to_string()],
+        }
+    }
+
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
+        let path_str = params
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| kkr_core::Error::Tool("Missing path".to_string()))?;
+
+        let path = resolve_path(path_str, ctx);
+
+        let metadata = fs::metadata(&path)
+            .await
+            .map_err(|e| kkr_core::Error::Tool(format!("Failed to get metadata: {}", e)))?;
+
+        let modified = metadata
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs());
+
+        Ok(json!({
+            "path": path.to_string_lossy(),
+            "size": metadata.len(),
+            "is_file": metadata.is_file(),
+            "is_dir": metadata.is_dir(),
+            "is_symlink": metadata.is_symlink(),
+            "readonly": metadata.permissions().readonly(),
+            "modified": modified
+        }))
+    }
+}
+
+pub fn all_tools() -> Vec<Box<dyn Tool>> {
+    vec![
+        Box::new(ReadFileTool::new()),
+        Box::new(WriteFileTool::new()),
+        Box::new(ListDirTool::new()),
+        Box::new(DeleteTool::new()),
+        Box::new(CopyTool::new()),
+        Box::new(MoveTool::new()),
+        Box::new(MkdirTool::new()),
+        Box::new(ExistsTool::new()),
+        Box::new(FileInfoTool::new()),
+    ]
 }

@@ -4,6 +4,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use crate::capsule::Capsule;
+use crate::hook::{HookContext, HookRegistry};
 use crate::knowledge::Knowledge;
 use crate::memory::Memory;
 use crate::session::AgentSession;
@@ -165,6 +166,7 @@ pub struct Agent {
     pub workspace: Workspace,
     pub memory: Memory,
     pub knowledge: Knowledge,
+    pub hooks: HookRegistry,
     session_id: Option<String>,
     user_id: Option<String>,
     capsules: Vec<Capsule>,
@@ -186,12 +188,18 @@ impl Agent {
             workspace,
             memory: Memory::new(),
             knowledge: Knowledge::new(),
+            hooks: HookRegistry::new(),
             session_id: None,
             user_id: None,
             capsules: Vec::new(),
             provider,
             total_usage: Usage::default(),
         }
+    }
+
+    pub fn with_hooks(mut self, hooks: HookRegistry) -> Self {
+        self.hooks = hooks;
+        self
     }
 
     pub fn with_session(mut self, session_id: impl Into<String>) -> Self {
@@ -350,6 +358,21 @@ impl Agent {
         Err(last_error.unwrap())
     }
 
+    fn create_hook_context(&self, run_id: &str, task: &Task) -> HookContext {
+        let mut ctx = HookContext::new(self.id.to_string(), run_id)
+            .with_messages(self.memory.messages())
+            .with_task(task.clone());
+
+        if let Some(ref session_id) = self.session_id {
+            ctx = ctx.with_session(session_id);
+        }
+        if let Some(ref user_id) = self.user_id {
+            ctx = ctx.with_user(user_id);
+        }
+
+        ctx
+    }
+
     pub async fn run(&mut self, task: Task) -> Result<Output> {
         self.run_with_events(task, None).await
     }
@@ -365,6 +388,16 @@ impl Agent {
 
         if let Some(ref tx) = event_tx {
             let _ = tx.send(AgentEvent::RunStarted { run_id: run_id.clone() }).await;
+        }
+
+        let mut hook_ctx = self.create_hook_context(&run_id, &task);
+        let pre_result = self.hooks.run_pre_hooks(&mut hook_ctx).await?;
+        if pre_result.should_abort() {
+            let output = Output::failure(task.id, "Aborted by pre-hook".to_string());
+            if let Some(ref tx) = event_tx {
+                let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
+            }
+            return Ok(output);
         }
 
         let mut messages = vec![self.system_message()];
@@ -395,6 +428,7 @@ impl Agent {
         loop {
             if iterations >= self.config.max_iterations {
                 let output = Output::failure(task.id, "Max iterations reached".to_string());
+                self.hooks.run_post_hooks(&mut hook_ctx, &output).await?;
                 if let Some(ref tx) = event_tx {
                     let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
                 }
@@ -425,6 +459,7 @@ impl Agent {
             match response.finish_reason {
                 FinishReason::Stop => {
                     let output = Output::success(task.id, response.message.content);
+                    self.hooks.run_post_hooks(&mut hook_ctx, &output).await?;
                     if let Some(ref tx) = event_tx {
                         let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
                     }
@@ -434,6 +469,15 @@ impl Agent {
                 FinishReason::ToolCalls => {
                     if let Some(tool_calls) = &response.message.tool_calls {
                         for tool_call in tool_calls {
+                            let before_result = self.hooks.run_tool_before(&hook_ctx, tool_call).await?;
+                            if before_result.should_abort() {
+                                let output = Output::failure(task.id, "Aborted by tool hook".to_string());
+                                if let Some(ref tx) = event_tx {
+                                    let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
+                                }
+                                return Ok(output);
+                            }
+
                             if let Some(ref tx) = event_tx {
                                 let _ = tx.send(AgentEvent::ToolCallStarted {
                                     tool_name: tool_call.name.clone(),
@@ -443,6 +487,13 @@ impl Agent {
 
                             let result = self.execute_tool_call(tool_call).await;
                             let success = result.is_ok();
+
+                            let result_value = match &result {
+                                Ok(v) => v.clone(),
+                                Err(e) => serde_json::json!({"error": e.to_string()}),
+                            };
+
+                            self.hooks.run_tool_after(&hook_ctx, tool_call, &result_value).await?;
 
                             let tool_msg = Message {
                                 role: Role::Tool,
@@ -471,6 +522,7 @@ impl Agent {
 
                 FinishReason::Length => {
                     let output = Output::failure(task.id, "Response too long".to_string());
+                    self.hooks.run_post_hooks(&mut hook_ctx, &output).await?;
                     if let Some(ref tx) = event_tx {
                         let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
                     }
@@ -479,6 +531,7 @@ impl Agent {
 
                 FinishReason::ContentFilter => {
                     let output = Output::failure(task.id, "Content filtered".to_string());
+                    self.hooks.run_post_hooks(&mut hook_ctx, &output).await?;
                     if let Some(ref tx) = event_tx {
                         let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
                     }

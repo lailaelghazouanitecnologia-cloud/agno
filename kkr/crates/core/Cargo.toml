@@ -18,5 +18,6 @@ tracing.workspace = true
 # Path handling
 camino = { version = "1.1", features = ["serde1"] }
 
-# Schema validation
+# Schema generation and validation
 jsonschema = "0.18"
+schemars = "0.8"

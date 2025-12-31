@@ -253,4 +253,65 @@ impl Output {
         self.metadata = metadata;
         self
     }
+
+    pub fn parse<T: serde::de::DeserializeOwned>(&self) -> Option<T> {
+        self.result
+            .as_ref()
+            .and_then(|r| serde_json::from_str(r).ok())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResponseSchema {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub schema: serde_json::Value,
+    #[serde(default)]
+    pub strict: bool,
+}
+
+impl ResponseSchema {
+    pub fn new(name: impl Into<String>, schema: serde_json::Value) -> Self {
+        let name = name.into();
+        debug_assert!(!name.is_empty(), "schema name must not be empty");
+
+        Self {
+            name,
+            description: None,
+            schema,
+            strict: false,
+        }
+    }
+
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+
+    pub fn with_strict(mut self, strict: bool) -> Self {
+        self.strict = strict;
+        self
+    }
+
+    pub fn from_type<T: schemars::JsonSchema>(name: impl Into<String>) -> Self {
+        let schema = schemars::schema_for!(T);
+        let schema_value = serde_json::to_value(schema).unwrap_or(serde_json::Value::Null);
+
+        Self::new(name, schema_value)
+    }
+}
+
+pub trait StructuredOutput: serde::de::DeserializeOwned + schemars::JsonSchema {
+    fn output_name() -> String {
+        std::any::type_name::<Self>()
+            .split("::")
+            .last()
+            .unwrap_or("Response")
+            .to_string()
+    }
+
+    fn response_schema() -> ResponseSchema {
+        ResponseSchema::from_type::<Self>(Self::output_name())
+    }
 }

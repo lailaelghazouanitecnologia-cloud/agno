@@ -1,14 +1,19 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
+use tokio::sync::mpsc;
 
 use crate::capsule::Capsule;
 use crate::knowledge::Knowledge;
 use crate::memory::Memory;
+use crate::session::AgentSession;
 use crate::types::{Id, Message, Output, Role, Task, ToolCall};
 use crate::workspace::Workspace;
 use crate::Result;
 
 const DEFAULT_MAX_ITERATIONS: usize = 10;
+const DEFAULT_RETRIES: usize = 0;
+const DEFAULT_RETRY_DELAY_MS: u64 = 1000;
 
 #[async_trait]
 pub trait Provider: Send + Sync {
@@ -61,6 +66,12 @@ impl Usage {
             total_tokens: prompt_tokens + completion_tokens,
         }
     }
+
+    pub fn add(&mut self, other: &Usage) {
+        self.prompt_tokens += other.prompt_tokens;
+        self.completion_tokens += other.completion_tokens;
+        self.total_tokens += other.total_tokens;
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +79,10 @@ pub struct AgentConfig {
     pub name: String,
     pub instructions: Option<String>,
     pub max_iterations: usize,
+    pub retries: usize,
+    pub retry_delay_ms: u64,
+    pub exponential_backoff: bool,
+    pub stream: bool,
 }
 
 impl AgentConfig {
@@ -79,6 +94,10 @@ impl AgentConfig {
             name,
             instructions: None,
             max_iterations: DEFAULT_MAX_ITERATIONS,
+            retries: DEFAULT_RETRIES,
+            retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
+            exponential_backoff: false,
+            stream: false,
         }
     }
 
@@ -92,6 +111,27 @@ impl AgentConfig {
         self.max_iterations = max;
         self
     }
+
+    pub fn with_retries(mut self, retries: usize) -> Self {
+        self.retries = retries;
+        self
+    }
+
+    pub fn with_retry_delay(mut self, delay_ms: u64) -> Self {
+        debug_assert!(delay_ms > 0, "retry_delay_ms must be positive");
+        self.retry_delay_ms = delay_ms;
+        self
+    }
+
+    pub fn with_exponential_backoff(mut self, enabled: bool) -> Self {
+        self.exponential_backoff = enabled;
+        self
+    }
+
+    pub fn with_stream(mut self, stream: bool) -> Self {
+        self.stream = stream;
+        self
+    }
 }
 
 impl Default for AgentConfig {
@@ -100,8 +140,23 @@ impl Default for AgentConfig {
             name: "Agent".to_string(),
             instructions: None,
             max_iterations: DEFAULT_MAX_ITERATIONS,
+            retries: DEFAULT_RETRIES,
+            retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
+            exponential_backoff: false,
+            stream: false,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum AgentEvent {
+    RunStarted { run_id: String },
+    MessageAdded { message: Message },
+    ToolCallStarted { tool_name: String, tool_call_id: String },
+    ToolCallCompleted { tool_call_id: String, success: bool },
+    ContentDelta { delta: String },
+    RunCompleted { output: Output },
+    Error { error: String },
 }
 
 pub struct Agent {
@@ -110,8 +165,11 @@ pub struct Agent {
     pub workspace: Workspace,
     pub memory: Memory,
     pub knowledge: Knowledge,
+    session_id: Option<String>,
+    user_id: Option<String>,
     capsules: Vec<Capsule>,
     provider: Box<dyn Provider>,
+    total_usage: Usage,
 }
 
 impl Agent {
@@ -128,9 +186,40 @@ impl Agent {
             workspace,
             memory: Memory::new(),
             knowledge: Knowledge::new(),
+            session_id: None,
+            user_id: None,
             capsules: Vec::new(),
             provider,
+            total_usage: Usage::default(),
         }
+    }
+
+    pub fn with_session(mut self, session_id: impl Into<String>) -> Self {
+        let session_id = session_id.into();
+        debug_assert!(!session_id.is_empty(), "session_id must not be empty");
+        self.session_id = Some(session_id);
+        self.memory = self.memory.with_session(self.session_id.as_ref().unwrap());
+        self
+    }
+
+    pub fn with_user(mut self, user_id: impl Into<String>) -> Self {
+        let user_id = user_id.into();
+        debug_assert!(!user_id.is_empty(), "user_id must not be empty");
+        self.user_id = Some(user_id);
+        self.memory = self.memory.with_user(self.user_id.as_ref().unwrap());
+        self
+    }
+
+    pub fn session_id(&self) -> Option<&str> {
+        self.session_id.as_deref()
+    }
+
+    pub fn user_id(&self) -> Option<&str> {
+        self.user_id.as_deref()
+    }
+
+    pub fn total_usage(&self) -> &Usage {
+        &self.total_usage
     }
 
     pub fn add_capsule(&mut self, capsule: Capsule) {
@@ -206,7 +295,7 @@ impl Agent {
         tools
     }
 
-    async fn execute_tool_call(&mut self, tool_call: &ToolCall) -> Result<serde_json::Value> {
+    async fn execute_tool_call(&self, tool_call: &ToolCall) -> Result<serde_json::Value> {
         debug_assert!(!tool_call.name.is_empty(), "tool call name must not be empty");
 
         let parts: Vec<&str> = tool_call.name.splitn(2, '_').collect();
@@ -230,11 +319,53 @@ impl Agent {
             .ok_or_else(|| crate::Error::Capsule(format!("Capsule not found: {}", capsule_name)))?;
 
         let workspace_root = Some(self.workspace.root().to_owned());
-        capsule.execute_tool(tool_name, tool_call.arguments.clone(), workspace_root).await
+        capsule
+            .execute_tool(tool_name, tool_call.arguments.clone(), workspace_root)
+            .await
+    }
+
+    async fn generate_with_retry(
+        &self,
+        messages: Vec<Message>,
+        tools: Option<Vec<crate::tool::ToolDefinition>>,
+    ) -> Result<ProviderResponse> {
+        let mut last_error = None;
+        let mut delay = self.config.retry_delay_ms;
+
+        for attempt in 0..=self.config.retries {
+            match self.provider.generate(messages.clone(), tools.clone()).await {
+                Ok(response) => return Ok(response),
+                Err(e) => {
+                    last_error = Some(e);
+                    if attempt < self.config.retries {
+                        tokio::time::sleep(Duration::from_millis(delay)).await;
+                        if self.config.exponential_backoff {
+                            delay *= 2;
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(last_error.unwrap())
     }
 
     pub async fn run(&mut self, task: Task) -> Result<Output> {
+        self.run_with_events(task, None).await
+    }
+
+    pub async fn run_with_events(
+        &mut self,
+        task: Task,
+        event_tx: Option<mpsc::Sender<AgentEvent>>,
+    ) -> Result<Output> {
         debug_assert!(!task.input.is_empty(), "task input must not be empty");
+
+        let run_id = crate::new_id().to_string();
+
+        if let Some(ref tx) = event_tx {
+            let _ = tx.send(AgentEvent::RunStarted { run_id: run_id.clone() }).await;
+        }
 
         let mut messages = vec![self.system_message()];
 
@@ -250,7 +381,11 @@ impl Agent {
             tool_call_id: None,
         };
         messages.push(user_msg.clone());
-        self.memory.add(user_msg);
+        self.memory.add(user_msg.clone());
+
+        if let Some(ref tx) = event_tx {
+            let _ = tx.send(AgentEvent::MessageAdded { message: user_msg }).await;
+        }
 
         let tools = self.collect_tools();
         let tools_opt = if tools.is_empty() { None } else { Some(tools) };
@@ -259,26 +394,55 @@ impl Agent {
 
         loop {
             if iterations >= self.config.max_iterations {
-                return Ok(Output::failure(
-                    task.id,
-                    "Max iterations reached".to_string(),
-                ));
+                let output = Output::failure(task.id, "Max iterations reached".to_string());
+                if let Some(ref tx) = event_tx {
+                    let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
+                }
+                return Ok(output);
             }
 
-            let response = self.provider.generate(messages.clone(), tools_opt.clone()).await?;
+            let response = match self.generate_with_retry(messages.clone(), tools_opt.clone()).await {
+                Ok(r) => r,
+                Err(e) => {
+                    if let Some(ref tx) = event_tx {
+                        let _ = tx.send(AgentEvent::Error { error: e.to_string() }).await;
+                    }
+                    return Err(e);
+                }
+            };
+
+            if let Some(ref usage) = response.usage {
+                self.total_usage.add(usage);
+            }
 
             messages.push(response.message.clone());
             self.memory.add(response.message.clone());
 
+            if let Some(ref tx) = event_tx {
+                let _ = tx.send(AgentEvent::MessageAdded { message: response.message.clone() }).await;
+            }
+
             match response.finish_reason {
                 FinishReason::Stop => {
-                    return Ok(Output::success(task.id, response.message.content));
+                    let output = Output::success(task.id, response.message.content);
+                    if let Some(ref tx) = event_tx {
+                        let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
+                    }
+                    return Ok(output);
                 }
 
                 FinishReason::ToolCalls => {
                     if let Some(tool_calls) = &response.message.tool_calls {
                         for tool_call in tool_calls {
+                            if let Some(ref tx) = event_tx {
+                                let _ = tx.send(AgentEvent::ToolCallStarted {
+                                    tool_name: tool_call.name.clone(),
+                                    tool_call_id: tool_call.id.clone(),
+                                }).await;
+                            }
+
                             let result = self.execute_tool_call(tool_call).await;
+                            let success = result.is_ok();
 
                             let tool_msg = Message {
                                 role: Role::Tool,
@@ -292,21 +456,50 @@ impl Agent {
                             };
 
                             messages.push(tool_msg.clone());
-                            self.memory.add(tool_msg);
+                            self.memory.add(tool_msg.clone());
+
+                            if let Some(ref tx) = event_tx {
+                                let _ = tx.send(AgentEvent::ToolCallCompleted {
+                                    tool_call_id: tool_call.id.clone(),
+                                    success,
+                                }).await;
+                                let _ = tx.send(AgentEvent::MessageAdded { message: tool_msg }).await;
+                            }
                         }
                     }
                 }
 
                 FinishReason::Length => {
-                    return Ok(Output::failure(task.id, "Response too long".to_string()));
+                    let output = Output::failure(task.id, "Response too long".to_string());
+                    if let Some(ref tx) = event_tx {
+                        let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
+                    }
+                    return Ok(output);
                 }
 
                 FinishReason::ContentFilter => {
-                    return Ok(Output::failure(task.id, "Content filtered".to_string()));
+                    let output = Output::failure(task.id, "Content filtered".to_string());
+                    if let Some(ref tx) = event_tx {
+                        let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
+                    }
+                    return Ok(output);
                 }
             }
 
             iterations += 1;
         }
+    }
+
+    pub fn create_session(&self) -> AgentSession {
+        let mut session = AgentSession::new(
+            self.session_id
+                .clone()
+                .unwrap_or_else(|| crate::new_id().to_string()),
+        );
+        session = session.with_agent(self.id.to_string());
+        if let Some(ref user_id) = self.user_id {
+            session = session.with_user(user_id);
+        }
+        session
     }
 }

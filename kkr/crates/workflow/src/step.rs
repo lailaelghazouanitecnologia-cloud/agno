@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use kkr_core::{Id, new_id, Output, Status, Task};
+use kkr_core::{new_id, Id, Status};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -122,52 +122,6 @@ pub trait Step: Send + Sync {
 
     fn retries(&self) -> usize {
         0
-    }
-}
-
-pub struct TaskStep {
-    name: String,
-    description: String,
-    task_fn: Box<dyn Fn(&StepContext) -> Task + Send + Sync>,
-    output_fn: Box<dyn Fn(Output) -> serde_json::Value + Send + Sync>,
-}
-
-impl TaskStep {
-    pub fn new<F, O>(name: impl Into<String>, task_fn: F, output_fn: O) -> Self
-    where
-        F: Fn(&StepContext) -> Task + Send + Sync + 'static,
-        O: Fn(Output) -> serde_json::Value + Send + Sync + 'static,
-    {
-        let name = name.into();
-        debug_assert!(!name.is_empty(), "step name must not be empty");
-
-        Self {
-            name,
-            description: String::new(),
-            task_fn: Box::new(task_fn),
-            output_fn: Box::new(output_fn),
-        }
-    }
-
-    pub fn description(mut self, desc: impl Into<String>) -> Self {
-        self.description = desc.into();
-        self
-    }
-}
-
-#[async_trait]
-impl Step for TaskStep {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn description(&self) -> &str {
-        &self.description
-    }
-
-    async fn execute(&self, ctx: &mut StepContext) -> StepResult {
-        let _task = (self.task_fn)(ctx);
-        StepResult::success(ctx.step_id, serde_json::json!({"status": "executed"}))
     }
 }
 

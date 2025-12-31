@@ -1,6 +1,7 @@
 use kkr_core::memory::{
-    estimate_tokens, InMemoryStorage, Memory, MemoryConfig, MemoryEntry, MemoryStorage,
-    TrimStrategy,
+    estimate_tokens, CompositeStrategy, InMemoryStorage, Memory, MemoryConfig, MemoryEntry,
+    MemoryStorage, OptimizationStrategy, RoleFilterStrategy, SlidingWindowStrategy,
+    StrategyRegistry, TokenBudgetStrategy, TrimStrategy,
 };
 use kkr_core::{Message, Role};
 
@@ -115,8 +116,6 @@ fn test_chat_history() {
 
 #[tokio::test]
 async fn test_trim_strategy() {
-    use kkr_core::memory::OptimizationStrategy;
-
     let strategy = TrimStrategy::new(3);
 
     let entries: Vec<_> = (0..10)
@@ -127,6 +126,115 @@ async fn test_trim_strategy() {
     assert_eq!(optimized.len(), 3);
     assert_eq!(optimized[0].message.content, "Message 7");
     assert_eq!(optimized[2].message.content, "Message 9");
+}
+
+#[tokio::test]
+async fn test_sliding_window_strategy() {
+    let strategy = SlidingWindowStrategy::new(3).preserve_first(2);
+
+    let entries: Vec<_> = (0..10)
+        .map(|i| MemoryEntry::new(make_message(&format!("Message {}", i))))
+        .collect();
+
+    let optimized = strategy.optimize(entries).await.unwrap();
+    assert_eq!(optimized.len(), 5);
+    assert_eq!(optimized[0].message.content, "Message 0");
+    assert_eq!(optimized[1].message.content, "Message 1");
+    assert_eq!(optimized[4].message.content, "Message 9");
+}
+
+#[tokio::test]
+async fn test_token_budget_strategy() {
+    let strategy = TokenBudgetStrategy::new(20);
+
+    let entries: Vec<_> = (0..5)
+        .map(|i| MemoryEntry::new(make_message(&format!("Msg{}", i))))
+        .collect();
+
+    let optimized = strategy.optimize(entries).await.unwrap();
+    assert!(!optimized.is_empty());
+
+    let total_tokens: usize = optimized.iter().map(|e| e.token_count).sum();
+    assert!(total_tokens <= 20);
+}
+
+#[tokio::test]
+async fn test_role_filter_strategy() {
+    let strategy = RoleFilterStrategy::new(vec![Role::User, Role::Assistant]);
+
+    let entries = vec![
+        MemoryEntry::new(Message {
+            role: Role::System,
+            content: "System".to_string(),
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }),
+        MemoryEntry::new(make_message("User")),
+        MemoryEntry::new(Message {
+            role: Role::Assistant,
+            content: "Assistant".to_string(),
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }),
+        MemoryEntry::new(Message {
+            role: Role::Tool,
+            content: "Tool".to_string(),
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }),
+    ];
+
+    let optimized = strategy.optimize(entries).await.unwrap();
+    assert_eq!(optimized.len(), 2);
+}
+
+#[tokio::test]
+async fn test_composite_strategy() {
+    let strategy = CompositeStrategy::new("filter_then_trim")
+        .then(RoleFilterStrategy::new(vec![Role::User, Role::Assistant]))
+        .then(TrimStrategy::new(2));
+
+    let entries = vec![
+        MemoryEntry::new(Message {
+            role: Role::System,
+            content: "System".to_string(),
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }),
+        MemoryEntry::new(make_message("User1")),
+        MemoryEntry::new(Message {
+            role: Role::Assistant,
+            content: "Assistant1".to_string(),
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }),
+        MemoryEntry::new(make_message("User2")),
+    ];
+
+    let optimized = strategy.optimize(entries).await.unwrap();
+    assert_eq!(optimized.len(), 2);
+    assert_eq!(optimized[0].message.content, "Assistant1");
+    assert_eq!(optimized[1].message.content, "User2");
+}
+
+#[test]
+fn test_strategy_registry() {
+    let mut registry = StrategyRegistry::new();
+
+    assert!(registry.get("trim").is_some());
+    assert!(registry.get("sliding_window").is_some());
+    assert!(registry.get("token_budget").is_some());
+
+    let names = registry.list();
+    assert!(names.len() >= 3);
+
+    registry.remove("trim");
+    assert!(registry.get("trim").is_none());
 }
 
 #[test]

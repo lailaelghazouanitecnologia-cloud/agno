@@ -589,6 +589,245 @@ impl PyUsage {
 }
 
 // ============================================================================
+// Strategy Types
+// ============================================================================
+
+#[pyclass]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PyStrategyType {
+    Trim,
+    SlidingWindow,
+    RoleFilter,
+    TokenBudget,
+    Summarize,
+    Custom,
+}
+
+#[pymethods]
+impl PyStrategyType {
+    fn __repr__(&self) -> &'static str {
+        match self {
+            PyStrategyType::Trim => "StrategyType.Trim",
+            PyStrategyType::SlidingWindow => "StrategyType.SlidingWindow",
+            PyStrategyType::RoleFilter => "StrategyType.RoleFilter",
+            PyStrategyType::TokenBudget => "StrategyType.TokenBudget",
+            PyStrategyType::Summarize => "StrategyType.Summarize",
+            PyStrategyType::Custom => "StrategyType.Custom",
+        }
+    }
+}
+
+#[pyclass]
+#[derive(Clone)]
+pub struct PyStrategyConfig {
+    #[pyo3(get, set)]
+    pub strategy_type: PyStrategyType,
+    #[pyo3(get, set)]
+    pub name: String,
+    #[pyo3(get, set)]
+    pub keep_count: Option<usize>,
+    #[pyo3(get, set)]
+    pub window_size: Option<usize>,
+    #[pyo3(get, set)]
+    pub max_tokens: Option<usize>,
+    #[pyo3(get, set)]
+    pub preserve_system: Option<bool>,
+    #[pyo3(get, set)]
+    pub keep_roles: Option<Vec<PyRole>>,
+}
+
+#[pymethods]
+impl PyStrategyConfig {
+    #[new]
+    #[pyo3(signature = (strategy_type, name=None))]
+    fn new(strategy_type: PyStrategyType, name: Option<String>) -> Self {
+        let default_name = match strategy_type {
+            PyStrategyType::Trim => "trim",
+            PyStrategyType::SlidingWindow => "sliding_window",
+            PyStrategyType::RoleFilter => "role_filter",
+            PyStrategyType::TokenBudget => "token_budget",
+            PyStrategyType::Summarize => "summarize",
+            PyStrategyType::Custom => "custom",
+        };
+        Self {
+            strategy_type,
+            name: name.unwrap_or_else(|| default_name.to_string()),
+            keep_count: None,
+            window_size: None,
+            max_tokens: None,
+            preserve_system: None,
+            keep_roles: None,
+        }
+    }
+
+    #[staticmethod]
+    fn trim(keep_count: usize) -> Self {
+        Self {
+            strategy_type: PyStrategyType::Trim,
+            name: "trim".to_string(),
+            keep_count: Some(keep_count),
+            window_size: None,
+            max_tokens: None,
+            preserve_system: Some(true),
+            keep_roles: None,
+        }
+    }
+
+    #[staticmethod]
+    fn sliding_window(window_size: usize) -> Self {
+        Self {
+            strategy_type: PyStrategyType::SlidingWindow,
+            name: "sliding_window".to_string(),
+            keep_count: None,
+            window_size: Some(window_size),
+            max_tokens: None,
+            preserve_system: None,
+            keep_roles: None,
+        }
+    }
+
+    #[staticmethod]
+    fn token_budget(max_tokens: usize) -> Self {
+        Self {
+            strategy_type: PyStrategyType::TokenBudget,
+            name: "token_budget".to_string(),
+            keep_count: None,
+            window_size: None,
+            max_tokens: Some(max_tokens),
+            preserve_system: Some(true),
+            keep_roles: None,
+        }
+    }
+
+    #[staticmethod]
+    fn role_filter(roles: Vec<PyRole>) -> Self {
+        Self {
+            strategy_type: PyStrategyType::RoleFilter,
+            name: "role_filter".to_string(),
+            keep_count: None,
+            window_size: None,
+            max_tokens: None,
+            preserve_system: None,
+            keep_roles: Some(roles),
+        }
+    }
+
+    fn with_preserve_system(&self, preserve: bool) -> Self {
+        let mut new = self.clone();
+        new.preserve_system = Some(preserve);
+        new
+    }
+
+    fn __repr__(&self) -> String {
+        format!("StrategyConfig(type={:?}, name={:?})", self.strategy_type.__repr__(), self.name)
+    }
+}
+
+#[pyclass]
+pub struct PyStrategyRegistry {
+    strategies: HashMap<String, PyStrategyConfig>,
+}
+
+#[pymethods]
+impl PyStrategyRegistry {
+    #[new]
+    fn new() -> Self {
+        let mut strategies = HashMap::new();
+        strategies.insert("trim".to_string(), PyStrategyConfig::trim(20));
+        strategies.insert("sliding_window".to_string(), PyStrategyConfig::sliding_window(10));
+        strategies.insert("token_budget".to_string(), PyStrategyConfig::token_budget(4000));
+        Self { strategies }
+    }
+
+    fn register(&mut self, config: PyStrategyConfig) {
+        self.strategies.insert(config.name.clone(), config);
+    }
+
+    fn get(&self, name: &str) -> Option<PyStrategyConfig> {
+        self.strategies.get(name).cloned()
+    }
+
+    fn list(&self) -> Vec<String> {
+        self.strategies.keys().cloned().collect()
+    }
+
+    fn remove(&mut self, name: &str) -> bool {
+        self.strategies.remove(name).is_some()
+    }
+
+    fn __len__(&self) -> usize {
+        self.strategies.len()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("StrategyRegistry(strategies={})", self.strategies.len())
+    }
+}
+
+// ============================================================================
+// Pipeline Types
+// ============================================================================
+
+#[pyclass]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PyStepResult {
+    Continue,
+    Stop,
+    Skip,
+}
+
+#[pymethods]
+impl PyStepResult {
+    fn __repr__(&self) -> &'static str {
+        match self {
+            PyStepResult::Continue => "StepResult.Continue",
+            PyStepResult::Stop => "StepResult.Stop",
+            PyStepResult::Skip => "StepResult.Skip",
+        }
+    }
+}
+
+#[pyclass]
+#[derive(Clone)]
+pub struct PyPipelineContext {
+    data: HashMap<String, String>,
+}
+
+#[pymethods]
+impl PyPipelineContext {
+    #[new]
+    fn new() -> Self {
+        Self {
+            data: HashMap::new(),
+        }
+    }
+
+    fn set(&mut self, key: String, value: String) {
+        self.data.insert(key, value);
+    }
+
+    fn get(&self, key: &str) -> Option<String> {
+        self.data.get(key).cloned()
+    }
+
+    fn remove(&mut self, key: &str) -> Option<String> {
+        self.data.remove(key)
+    }
+
+    fn keys(&self) -> Vec<String> {
+        self.data.keys().cloned().collect()
+    }
+
+    fn __len__(&self) -> usize {
+        self.data.len()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("PipelineContext(keys={})", self.data.len())
+    }
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
@@ -634,6 +873,8 @@ fn kkr(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     // Enums
     m.add_class::<PyRole>()?;
     m.add_class::<PyTendencyStrength>()?;
+    m.add_class::<PyStrategyType>()?;
+    m.add_class::<PyStepResult>()?;
 
     // Core types
     m.add_class::<PyMessage>()?;
@@ -645,6 +886,13 @@ fn kkr(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     // Memory and Knowledge
     m.add_class::<PyMemory>()?;
     m.add_class::<PyKnowledge>()?;
+
+    // Strategies
+    m.add_class::<PyStrategyConfig>()?;
+    m.add_class::<PyStrategyRegistry>()?;
+
+    // Pipeline
+    m.add_class::<PyPipelineContext>()?;
 
     // Configuration
     m.add_class::<PyAgentConfig>()?;

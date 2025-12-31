@@ -4,7 +4,11 @@ mod strategy;
 
 pub use entry::{current_timestamp, estimate_tokens, MemoryConfig, MemoryEntry};
 pub use storage::{InMemoryStorage, MemoryStorage};
-pub use strategy::{OptimizationStrategy, SummarizeStrategy, TrimStrategy};
+pub use strategy::{
+    CallbackStrategy, CompositeStrategy, ConditionalStrategy, OptimizationStrategy,
+    RoleFilterStrategy, SlidingWindowStrategy, StrategyRegistry, SummarizeStrategy,
+    TokenBudgetStrategy, TrimStrategy,
+};
 
 use serde::Serialize;
 use std::collections::HashMap;

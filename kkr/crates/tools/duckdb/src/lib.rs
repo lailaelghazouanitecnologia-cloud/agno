@@ -155,6 +155,154 @@ impl DuckDBClient {
         self.execute(&export_sql).await?;
         Ok(())
     }
+
+    /// Load data from S3 (requires httpfs extension)
+    pub async fn load_s3(
+        &self,
+        s3_path: &str,
+        table_name: &str,
+        access_key: Option<&str>,
+        secret_key: Option<&str>,
+        region: Option<&str>,
+    ) -> Result<usize> {
+        // Install and load httpfs extension
+        self.execute("INSTALL httpfs; LOAD httpfs;").await.ok();
+
+        // Set S3 credentials if provided
+        if let Some(key) = access_key {
+            self.execute(&format!("SET s3_access_key_id='{}'", key)).await?;
+        }
+        if let Some(secret) = secret_key {
+            self.execute(&format!("SET s3_secret_access_key='{}'", secret)).await?;
+        }
+        if let Some(region) = region {
+            self.execute(&format!("SET s3_region='{}'", region)).await?;
+        }
+
+        // Detect format from path
+        let format = if s3_path.ends_with(".parquet") {
+            "read_parquet"
+        } else if s3_path.ends_with(".json") || s3_path.ends_with(".jsonl") {
+            "read_json_auto"
+        } else {
+            "read_csv_auto"
+        };
+
+        let sql = format!(
+            "CREATE TABLE IF NOT EXISTS {} AS SELECT * FROM {}('{}')",
+            table_name, format, s3_path
+        );
+        self.execute(&sql).await
+    }
+
+    /// Get query execution plan (EXPLAIN)
+    pub async fn explain(&self, sql: &str) -> Result<String> {
+        let explain_sql = format!("EXPLAIN {}", sql);
+        let result = self.query(&explain_sql).await?;
+
+        let plan = result
+            .rows
+            .iter()
+            .filter_map(|row| row.first().and_then(|v| v.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        Ok(plan)
+    }
+
+    /// Get query execution plan with analysis (EXPLAIN ANALYZE)
+    pub async fn explain_analyze(&self, sql: &str) -> Result<String> {
+        let explain_sql = format!("EXPLAIN ANALYZE {}", sql);
+        let result = self.query(&explain_sql).await?;
+
+        let plan = result
+            .rows
+            .iter()
+            .filter_map(|row| row.first().and_then(|v| v.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        Ok(plan)
+    }
+
+    /// Summarize a table with statistical aggregates
+    pub async fn summarize(&self, table_name: &str) -> Result<TableSummary> {
+        let sql = format!("SUMMARIZE {}", table_name);
+        let result = self.query(&sql).await?;
+
+        let columns: Vec<ColumnSummary> = result
+            .rows
+            .iter()
+            .filter_map(|row| {
+                if row.len() >= 10 {
+                    Some(ColumnSummary {
+                        column_name: row[0].as_str().unwrap_or("").to_string(),
+                        column_type: row[1].as_str().unwrap_or("").to_string(),
+                        min: row[2].clone(),
+                        max: row[3].clone(),
+                        approx_unique: row[4].as_i64(),
+                        avg: row[5].as_f64(),
+                        std: row[6].as_f64(),
+                        q25: row[7].clone(),
+                        q50: row[8].clone(),
+                        q75: row[9].clone(),
+                        count: row.get(10).and_then(|v| v.as_i64()),
+                        null_percentage: row.get(11).and_then(|v| v.as_f64()),
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(TableSummary {
+            table_name: table_name.to_string(),
+            columns,
+        })
+    }
+
+    /// Create a full-text search index on a table
+    pub async fn create_fts_index(
+        &self,
+        table_name: &str,
+        columns: &[&str],
+        index_name: Option<&str>,
+    ) -> Result<()> {
+        // Install and load FTS extension
+        self.execute("INSTALL fts; LOAD fts;").await.ok();
+
+        let default_idx_name = format!("{}_fts_idx", table_name);
+        let idx_name = index_name.unwrap_or(&default_idx_name);
+        let cols = columns.join(", ");
+
+        let sql = format!(
+            "PRAGMA create_fts_index('{}', '{}', '{}')",
+            table_name, idx_name, cols
+        );
+
+        self.execute(&sql).await?;
+        Ok(())
+    }
+
+    /// Perform full-text search using BM25 scoring
+    pub async fn full_text_search(
+        &self,
+        table_name: &str,
+        search_query: &str,
+        limit: Option<usize>,
+    ) -> Result<QueryResult> {
+        // Make sure FTS is loaded
+        self.execute("LOAD fts;").await.ok();
+
+        let limit_clause = limit.map(|l| format!(" LIMIT {}", l)).unwrap_or_default();
+
+        let sql = format!(
+            "SELECT *, fts_main_{}.match_bm25(rowid, '{}') AS score FROM {} WHERE score IS NOT NULL ORDER BY score DESC{}",
+            table_name, search_query, table_name, limit_clause
+        );
+
+        self.query(&sql).await
+    }
 }
 
 fn row_to_json_value(row: &duckdb::Row, idx: usize) -> Value {
@@ -199,6 +347,28 @@ pub enum ExportFormat {
     Csv,
     Parquet,
     Json,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TableSummary {
+    pub table_name: String,
+    pub columns: Vec<ColumnSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ColumnSummary {
+    pub column_name: String,
+    pub column_type: String,
+    pub min: Value,
+    pub max: Value,
+    pub approx_unique: Option<i64>,
+    pub avg: Option<f64>,
+    pub std: Option<f64>,
+    pub q25: Value,
+    pub q50: Value,
+    pub q75: Value,
+    pub count: Option<i64>,
+    pub null_percentage: Option<f64>,
 }
 
 // ============================================================================
@@ -542,13 +712,418 @@ impl Tool for DuckDBExportTool {
     }
 }
 
+// ============================================================================
+// DuckDB Explain Tool
+// ============================================================================
+
+pub struct DuckDBExplainTool {
+    client: DuckDBClient,
+}
+
+impl DuckDBExplainTool {
+    pub fn new(client: DuckDBClient) -> Self {
+        Self { client }
+    }
+
+    pub fn in_memory() -> Result<Self> {
+        Ok(Self::new(DuckDBClient::in_memory()?))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct DuckDBExplainParams {
+    sql: String,
+    #[serde(default)]
+    analyze: bool,
+}
+
+#[async_trait]
+impl Tool for DuckDBExplainTool {
+    fn name(&self) -> &str {
+        "duckdb_explain"
+    }
+
+    fn description(&self) -> &str {
+        "Get the execution plan for a SQL query. Use analyze=true to include actual execution statistics."
+    }
+
+    fn schema(&self) -> ToolSchema {
+        ToolSchema {
+            schema_type: "object".to_string(),
+            properties: json!({
+                "sql": {
+                    "type": "string",
+                    "description": "SQL query to explain"
+                },
+                "analyze": {
+                    "type": "boolean",
+                    "description": "If true, actually run the query and show real execution stats",
+                    "default": false
+                }
+            }),
+            required: vec!["sql".to_string()],
+        }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Database)
+            .with_tags(vec!["duckdb", "explain", "query", "plan", "performance"])
+            .with_read_only(true)
+            .with_priority(70)
+    }
+
+    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
+        let params: DuckDBExplainParams = serde_json::from_value(params)
+            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+
+        let plan = if params.analyze {
+            self.client.explain_analyze(&params.sql).await?
+        } else {
+            self.client.explain(&params.sql).await?
+        };
+
+        Ok(json!({
+            "sql": params.sql,
+            "analyzed": params.analyze,
+            "plan": plan
+        }))
+    }
+}
+
+// ============================================================================
+// DuckDB Summarize Tool
+// ============================================================================
+
+pub struct DuckDBSummarizeTool {
+    client: DuckDBClient,
+}
+
+impl DuckDBSummarizeTool {
+    pub fn new(client: DuckDBClient) -> Self {
+        Self { client }
+    }
+
+    pub fn in_memory() -> Result<Self> {
+        Ok(Self::new(DuckDBClient::in_memory()?))
+    }
+}
+
+#[async_trait]
+impl Tool for DuckDBSummarizeTool {
+    fn name(&self) -> &str {
+        "duckdb_summarize"
+    }
+
+    fn description(&self) -> &str {
+        "Get statistical summary of a table including min, max, avg, std, quartiles, and null percentage for each column."
+    }
+
+    fn schema(&self) -> ToolSchema {
+        ToolSchema {
+            schema_type: "object".to_string(),
+            properties: json!({
+                "table_name": {
+                    "type": "string",
+                    "description": "Name of the table to summarize"
+                }
+            }),
+            required: vec!["table_name".to_string()],
+        }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Database)
+            .with_tags(vec!["duckdb", "summarize", "statistics", "analytics"])
+            .with_read_only(true)
+            .with_priority(75)
+    }
+
+    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
+        let table_name = params
+            .get("table_name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| kkr_core::Error::Tool("Missing table_name".to_string()))?;
+
+        let summary = self.client.summarize(table_name).await?;
+
+        Ok(json!(summary))
+    }
+}
+
+// ============================================================================
+// DuckDB Load S3 Tool
+// ============================================================================
+
+pub struct DuckDBLoadS3Tool {
+    client: DuckDBClient,
+}
+
+impl DuckDBLoadS3Tool {
+    pub fn new(client: DuckDBClient) -> Self {
+        Self { client }
+    }
+
+    pub fn in_memory() -> Result<Self> {
+        Ok(Self::new(DuckDBClient::in_memory()?))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct DuckDBLoadS3Params {
+    s3_path: String,
+    table_name: String,
+    #[serde(default)]
+    access_key: Option<String>,
+    #[serde(default)]
+    secret_key: Option<String>,
+    #[serde(default)]
+    region: Option<String>,
+}
+
+#[async_trait]
+impl Tool for DuckDBLoadS3Tool {
+    fn name(&self) -> &str {
+        "duckdb_load_s3"
+    }
+
+    fn description(&self) -> &str {
+        "Load data from Amazon S3 into a DuckDB table. Supports CSV, Parquet, and JSON files."
+    }
+
+    fn schema(&self) -> ToolSchema {
+        ToolSchema {
+            schema_type: "object".to_string(),
+            properties: json!({
+                "s3_path": {
+                    "type": "string",
+                    "description": "S3 path (e.g., 's3://bucket/path/file.parquet')"
+                },
+                "table_name": {
+                    "type": "string",
+                    "description": "Name of the table to create"
+                },
+                "access_key": {
+                    "type": "string",
+                    "description": "AWS access key ID (optional, uses env if not provided)"
+                },
+                "secret_key": {
+                    "type": "string",
+                    "description": "AWS secret access key (optional, uses env if not provided)"
+                },
+                "region": {
+                    "type": "string",
+                    "description": "AWS region (e.g., 'us-east-1')"
+                }
+            }),
+            required: vec!["s3_path".to_string(), "table_name".to_string()],
+        }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Database)
+            .with_tags(vec!["duckdb", "s3", "aws", "cloud", "load", "import"])
+            .with_read_only(false)
+            .with_priority(80)
+    }
+
+    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
+        let params: DuckDBLoadS3Params = serde_json::from_value(params)
+            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+
+        self.client
+            .load_s3(
+                &params.s3_path,
+                &params.table_name,
+                params.access_key.as_deref(),
+                params.secret_key.as_deref(),
+                params.region.as_deref(),
+            )
+            .await?;
+
+        let schema = self.client.describe_table(&params.table_name).await?;
+
+        Ok(json!({
+            "success": true,
+            "table_name": params.table_name,
+            "source": params.s3_path,
+            "schema": schema
+        }))
+    }
+}
+
+// ============================================================================
+// DuckDB Create FTS Index Tool
+// ============================================================================
+
+pub struct DuckDBCreateFTSIndexTool {
+    client: DuckDBClient,
+}
+
+impl DuckDBCreateFTSIndexTool {
+    pub fn new(client: DuckDBClient) -> Self {
+        Self { client }
+    }
+
+    pub fn in_memory() -> Result<Self> {
+        Ok(Self::new(DuckDBClient::in_memory()?))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct DuckDBCreateFTSParams {
+    table_name: String,
+    columns: Vec<String>,
+    #[serde(default)]
+    index_name: Option<String>,
+}
+
+#[async_trait]
+impl Tool for DuckDBCreateFTSIndexTool {
+    fn name(&self) -> &str {
+        "duckdb_create_fts_index"
+    }
+
+    fn description(&self) -> &str {
+        "Create a full-text search index on specified columns of a table. Enables fast text search with BM25 scoring."
+    }
+
+    fn schema(&self) -> ToolSchema {
+        ToolSchema {
+            schema_type: "object".to_string(),
+            properties: json!({
+                "table_name": {
+                    "type": "string",
+                    "description": "Name of the table to index"
+                },
+                "columns": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of text columns to include in the FTS index"
+                },
+                "index_name": {
+                    "type": "string",
+                    "description": "Optional custom name for the index"
+                }
+            }),
+            required: vec!["table_name".to_string(), "columns".to_string()],
+        }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Database)
+            .with_tags(vec!["duckdb", "fts", "fulltext", "search", "index"])
+            .with_read_only(false)
+            .with_priority(70)
+    }
+
+    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
+        let params: DuckDBCreateFTSParams = serde_json::from_value(params)
+            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+
+        let columns: Vec<&str> = params.columns.iter().map(|s| s.as_str()).collect();
+
+        self.client
+            .create_fts_index(&params.table_name, &columns, params.index_name.as_deref())
+            .await?;
+
+        Ok(json!({
+            "success": true,
+            "table_name": params.table_name,
+            "indexed_columns": params.columns,
+            "index_name": params.index_name.unwrap_or_else(|| format!("{}_fts_idx", params.table_name))
+        }))
+    }
+}
+
+// ============================================================================
+// DuckDB Full-Text Search Tool
+// ============================================================================
+
+pub struct DuckDBSearchTool {
+    client: DuckDBClient,
+}
+
+impl DuckDBSearchTool {
+    pub fn new(client: DuckDBClient) -> Self {
+        Self { client }
+    }
+
+    pub fn in_memory() -> Result<Self> {
+        Ok(Self::new(DuckDBClient::in_memory()?))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct DuckDBSearchParams {
+    table_name: String,
+    query: String,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+#[async_trait]
+impl Tool for DuckDBSearchTool {
+    fn name(&self) -> &str {
+        "duckdb_search"
+    }
+
+    fn description(&self) -> &str {
+        "Perform full-text search on a table using BM25 scoring. Requires an FTS index to be created first."
+    }
+
+    fn schema(&self) -> ToolSchema {
+        ToolSchema {
+            schema_type: "object".to_string(),
+            properties: json!({
+                "table_name": {
+                    "type": "string",
+                    "description": "Name of the table to search (must have FTS index)"
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Search query text"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return"
+                }
+            }),
+            required: vec!["table_name".to_string(), "query".to_string()],
+        }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Database)
+            .with_tags(vec!["duckdb", "fts", "fulltext", "search", "bm25"])
+            .with_read_only(true)
+            .with_priority(80)
+    }
+
+    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
+        let params: DuckDBSearchParams = serde_json::from_value(params)
+            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+
+        let results = self
+            .client
+            .full_text_search(&params.table_name, &params.query, params.limit)
+            .await?;
+
+        Ok(json!(results))
+    }
+}
+
 /// Get all DuckDB tools with a shared client
 pub fn all_tools(client: DuckDBClient) -> Vec<Box<dyn Tool>> {
     vec![
         Box::new(DuckDBQueryTool::new(client.clone())),
         Box::new(DuckDBLoadTool::new(client.clone())),
         Box::new(DuckDBTablesTool::new(client.clone())),
-        Box::new(DuckDBExportTool::new(client)),
+        Box::new(DuckDBExportTool::new(client.clone())),
+        Box::new(DuckDBExplainTool::new(client.clone())),
+        Box::new(DuckDBSummarizeTool::new(client.clone())),
+        Box::new(DuckDBLoadS3Tool::new(client.clone())),
+        Box::new(DuckDBCreateFTSIndexTool::new(client.clone())),
+        Box::new(DuckDBSearchTool::new(client)),
     ]
 }
 

@@ -395,8 +395,10 @@ impl Tool for ResendEmailTool {
 pub mod gmail;
 
 pub use gmail::{
-    GmailClient, GmailCredentials, GmailDraftTool, GmailLabel, GmailLabelsTool, GmailMessage,
-    GmailModifyLabelsTool, GmailReadTool, GmailSendTool, GmailTrashTool,
+    GmailAttachment, GmailAttachmentTool, GmailClient, GmailCreateLabelTool, GmailCredentials,
+    GmailDeleteLabelTool, GmailDraftTool, GmailLabel, GmailLabelsTool, GmailMessage,
+    GmailModifyLabelsTool, GmailReadTool, GmailReplyTool, GmailSendTool, GmailThreadTool,
+    GmailTrashTool,
 };
 
 #[cfg(test)]

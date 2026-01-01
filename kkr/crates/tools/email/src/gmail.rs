@@ -383,6 +383,181 @@ impl GmailClient {
 
         Ok(())
     }
+
+    /// Reply to an existing message in the same thread
+    pub async fn reply_message(
+        &self,
+        message_id: &str,
+        thread_id: &str,
+        to: &str,
+        body: &str,
+        html: bool,
+    ) -> Result<String> {
+        let token = self.get_access_token().await?;
+
+        // Get original message to extract subject and references
+        let original = self.get_message(message_id).await?;
+        let subject = if original.subject.starts_with("Re: ") {
+            original.subject.clone()
+        } else {
+            format!("Re: {}", original.subject)
+        };
+
+        let content_type = if html { "text/html" } else { "text/plain" };
+        let raw_message = format!(
+            "To: {}\r\nSubject: {}\r\nIn-Reply-To: {}\r\nReferences: {}\r\nContent-Type: {}; charset=utf-8\r\n\r\n{}",
+            to, subject, message_id, message_id, content_type, body
+        );
+
+        let encoded = URL_SAFE.encode(raw_message.as_bytes());
+
+        let url = format!("{}/users/{}/messages/send", GMAIL_API_BASE, self.user_id);
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .json(&json!({
+                "raw": encoded,
+                "threadId": thread_id
+            }))
+            .send()
+            .await
+            .map_err(|e| kkr_core::Error::Tool(format!("Failed to send reply: {}", e)))?;
+
+        let data: Value = response
+            .json()
+            .await
+            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse response: {}", e)))?;
+
+        data["id"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| kkr_core::Error::Tool("No message ID in response".to_string()))
+    }
+
+    /// Get all messages in a thread
+    pub async fn get_thread(&self, thread_id: &str) -> Result<Vec<GmailMessage>> {
+        let token = self.get_access_token().await?;
+
+        let url = format!(
+            "{}/users/{}/threads/{}?format=full",
+            GMAIL_API_BASE, self.user_id, thread_id
+        );
+
+        let response = self
+            .client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await
+            .map_err(|e| kkr_core::Error::Tool(format!("Failed to get thread: {}", e)))?;
+
+        let data: Value = response
+            .json()
+            .await
+            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse thread: {}", e)))?;
+
+        let messages = data["messages"]
+            .as_array()
+            .unwrap_or(&vec![])
+            .iter()
+            .filter_map(|m| parse_gmail_message(m.clone()).ok())
+            .collect();
+
+        Ok(messages)
+    }
+
+    /// Create a new label
+    pub async fn create_label(&self, name: &str) -> Result<GmailLabel> {
+        let token = self.get_access_token().await?;
+
+        let url = format!("{}/users/{}/labels", GMAIL_API_BASE, self.user_id);
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .json(&json!({
+                "name": name,
+                "labelListVisibility": "labelShow",
+                "messageListVisibility": "show"
+            }))
+            .send()
+            .await
+            .map_err(|e| kkr_core::Error::Tool(format!("Failed to create label: {}", e)))?;
+
+        let data: Value = response
+            .json()
+            .await
+            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse response: {}", e)))?;
+
+        Ok(GmailLabel {
+            id: data["id"].as_str().unwrap_or("").to_string(),
+            name: data["name"].as_str().unwrap_or("").to_string(),
+            label_type: data["type"].as_str().unwrap_or("user").to_string(),
+        })
+    }
+
+    /// Delete a label (user-created labels only)
+    pub async fn delete_label(&self, label_id: &str) -> Result<()> {
+        let token = self.get_access_token().await?;
+
+        let url = format!(
+            "{}/users/{}/labels/{}",
+            GMAIL_API_BASE, self.user_id, label_id
+        );
+
+        let response = self
+            .client
+            .delete(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await
+            .map_err(|e| kkr_core::Error::Tool(format!("Failed to delete label: {}", e)))?;
+
+        if !response.status().is_success() {
+            return Err(kkr_core::Error::Tool(format!(
+                "Failed to delete label: {}",
+                response.status()
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Download an attachment
+    pub async fn get_attachment(&self, message_id: &str, attachment_id: &str) -> Result<Vec<u8>> {
+        let token = self.get_access_token().await?;
+
+        let url = format!(
+            "{}/users/{}/messages/{}/attachments/{}",
+            GMAIL_API_BASE, self.user_id, message_id, attachment_id
+        );
+
+        let response = self
+            .client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await
+            .map_err(|e| kkr_core::Error::Tool(format!("Failed to get attachment: {}", e)))?;
+
+        let data: Value = response
+            .json()
+            .await
+            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse attachment: {}", e)))?;
+
+        let encoded = data["data"]
+            .as_str()
+            .ok_or_else(|| kkr_core::Error::Tool("No attachment data".to_string()))?;
+
+        URL_SAFE
+            .decode(encoded)
+            .map_err(|e| kkr_core::Error::Tool(format!("Failed to decode attachment: {}", e)))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -391,11 +566,21 @@ pub struct GmailMessage {
     pub thread_id: String,
     pub from: String,
     pub to: String,
+    pub cc: Option<String>,
     pub subject: String,
     pub date: String,
     pub snippet: String,
     pub body: String,
     pub labels: Vec<String>,
+    pub attachments: Vec<GmailAttachment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GmailAttachment {
+    pub id: String,
+    pub filename: String,
+    pub mime_type: String,
+    pub size: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -412,7 +597,7 @@ fn parse_gmail_message(data: Value) -> Result<GmailMessage> {
         headers
             .and_then(|h| {
                 h.iter()
-                    .find(|hdr| hdr["name"].as_str() == Some(name))
+                    .find(|hdr| hdr["name"].as_str().map(|s| s.eq_ignore_ascii_case(name)) == Some(true))
                     .and_then(|hdr| hdr["value"].as_str())
             })
             .unwrap_or("")
@@ -420,12 +605,17 @@ fn parse_gmail_message(data: Value) -> Result<GmailMessage> {
     };
 
     let body = extract_body(&data["payload"]);
+    let attachments = extract_attachments(&data["payload"]);
+
+    let cc = get_header("Cc");
+    let cc = if cc.is_empty() { None } else { Some(cc) };
 
     Ok(GmailMessage {
         id: data["id"].as_str().unwrap_or("").to_string(),
         thread_id: data["threadId"].as_str().unwrap_or("").to_string(),
         from: get_header("From"),
         to: get_header("To"),
+        cc,
         subject: get_header("Subject"),
         date: get_header("Date"),
         snippet: data["snippet"].as_str().unwrap_or("").to_string(),
@@ -438,7 +628,36 @@ fn parse_gmail_message(data: Value) -> Result<GmailMessage> {
                     .collect()
             })
             .unwrap_or_default(),
+        attachments,
     })
+}
+
+fn extract_attachments(payload: &Value) -> Vec<GmailAttachment> {
+    let mut attachments = Vec::new();
+
+    if let Some(parts) = payload["parts"].as_array() {
+        for part in parts {
+            let filename = part["filename"].as_str().unwrap_or("");
+            if !filename.is_empty() {
+                if let Some(body) = part["body"].as_object() {
+                    attachments.push(GmailAttachment {
+                        id: body.get("attachmentId")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        filename: filename.to_string(),
+                        mime_type: part["mimeType"].as_str().unwrap_or("").to_string(),
+                        size: body.get("size").and_then(|v| v.as_u64()).unwrap_or(0),
+                    });
+                }
+            }
+            // Recurse into nested parts
+            let nested = extract_attachments(part);
+            attachments.extend(nested);
+        }
+    }
+
+    attachments
 }
 
 fn extract_body(payload: &Value) -> String {
@@ -930,13 +1149,381 @@ impl Tool for GmailTrashTool {
     }
 }
 
+// ============================================================================
+// Gmail Reply Tool
+// ============================================================================
+
+pub struct GmailReplyTool {
+    client: GmailClient,
+}
+
+impl GmailReplyTool {
+    pub fn new(client: GmailClient) -> Self {
+        Self { client }
+    }
+
+    pub fn from_env() -> Result<Self> {
+        Ok(Self::new(GmailClient::from_env()?))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct GmailReplyParams {
+    message_id: String,
+    thread_id: String,
+    body: String,
+    #[serde(default)]
+    html: bool,
+}
+
+#[async_trait]
+impl Tool for GmailReplyTool {
+    fn name(&self) -> &str {
+        "gmail_reply"
+    }
+
+    fn description(&self) -> &str {
+        "Reply to an existing email in the same thread. Automatically adds Re: prefix and proper threading headers."
+    }
+
+    fn schema(&self) -> ToolSchema {
+        ToolSchema {
+            schema_type: "object".to_string(),
+            properties: json!({
+                "message_id": {
+                    "type": "string",
+                    "description": "The ID of the message to reply to"
+                },
+                "thread_id": {
+                    "type": "string",
+                    "description": "The thread ID for proper threading"
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Reply body content"
+                },
+                "html": {
+                    "type": "boolean",
+                    "description": "Whether body is HTML (default: false)"
+                }
+            }),
+            required: vec!["message_id".to_string(), "thread_id".to_string(), "body".to_string()],
+        }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Network)
+            .with_tags(vec!["gmail", "email", "reply", "thread", "google"])
+            .with_read_only(false)
+            .with_priority(80)
+            .with_requires(vec!["GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_ACCESS_TOKEN"])
+    }
+
+    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
+        let params: GmailReplyParams = serde_json::from_value(params)
+            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+
+        // Get original message to find the sender
+        let original = self.client.get_message(&params.message_id).await?;
+
+        let message_id = self
+            .client
+            .reply_message(
+                &params.message_id,
+                &params.thread_id,
+                &original.from,
+                &params.body,
+                params.html,
+            )
+            .await?;
+
+        Ok(json!({
+            "success": true,
+            "message_id": message_id,
+            "thread_id": params.thread_id,
+            "replied_to": original.from
+        }))
+    }
+}
+
+// ============================================================================
+// Gmail Thread Tool
+// ============================================================================
+
+pub struct GmailThreadTool {
+    client: GmailClient,
+}
+
+impl GmailThreadTool {
+    pub fn new(client: GmailClient) -> Self {
+        Self { client }
+    }
+
+    pub fn from_env() -> Result<Self> {
+        Ok(Self::new(GmailClient::from_env()?))
+    }
+}
+
+#[async_trait]
+impl Tool for GmailThreadTool {
+    fn name(&self) -> &str {
+        "gmail_thread"
+    }
+
+    fn description(&self) -> &str {
+        "Get all messages in an email thread/conversation."
+    }
+
+    fn schema(&self) -> ToolSchema {
+        ToolSchema {
+            schema_type: "object".to_string(),
+            properties: json!({
+                "thread_id": {
+                    "type": "string",
+                    "description": "The thread ID to retrieve"
+                }
+            }),
+            required: vec!["thread_id".to_string()],
+        }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Network)
+            .with_tags(vec!["gmail", "email", "thread", "conversation", "google"])
+            .with_read_only(true)
+            .with_priority(75)
+            .with_requires(vec!["GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_ACCESS_TOKEN"])
+    }
+
+    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
+        let thread_id = params
+            .get("thread_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| kkr_core::Error::Tool("Missing thread_id".to_string()))?;
+
+        let messages = self.client.get_thread(thread_id).await?;
+
+        Ok(json!({
+            "thread_id": thread_id,
+            "message_count": messages.len(),
+            "messages": messages
+        }))
+    }
+}
+
+// ============================================================================
+// Gmail Create Label Tool
+// ============================================================================
+
+pub struct GmailCreateLabelTool {
+    client: GmailClient,
+}
+
+impl GmailCreateLabelTool {
+    pub fn new(client: GmailClient) -> Self {
+        Self { client }
+    }
+
+    pub fn from_env() -> Result<Self> {
+        Ok(Self::new(GmailClient::from_env()?))
+    }
+}
+
+#[async_trait]
+impl Tool for GmailCreateLabelTool {
+    fn name(&self) -> &str {
+        "gmail_create_label"
+    }
+
+    fn description(&self) -> &str {
+        "Create a new custom label in Gmail."
+    }
+
+    fn schema(&self) -> ToolSchema {
+        ToolSchema {
+            schema_type: "object".to_string(),
+            properties: json!({
+                "name": {
+                    "type": "string",
+                    "description": "Name for the new label"
+                }
+            }),
+            required: vec!["name".to_string()],
+        }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Network)
+            .with_tags(vec!["gmail", "email", "label", "create", "google"])
+            .with_read_only(false)
+            .with_priority(60)
+            .with_requires(vec!["GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_ACCESS_TOKEN"])
+    }
+
+    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
+        let name = params
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| kkr_core::Error::Tool("Missing name".to_string()))?;
+
+        let label = self.client.create_label(name).await?;
+
+        Ok(json!({
+            "success": true,
+            "label": label
+        }))
+    }
+}
+
+// ============================================================================
+// Gmail Delete Label Tool
+// ============================================================================
+
+pub struct GmailDeleteLabelTool {
+    client: GmailClient,
+}
+
+impl GmailDeleteLabelTool {
+    pub fn new(client: GmailClient) -> Self {
+        Self { client }
+    }
+
+    pub fn from_env() -> Result<Self> {
+        Ok(Self::new(GmailClient::from_env()?))
+    }
+}
+
+#[async_trait]
+impl Tool for GmailDeleteLabelTool {
+    fn name(&self) -> &str {
+        "gmail_delete_label"
+    }
+
+    fn description(&self) -> &str {
+        "Delete a custom label from Gmail. System labels cannot be deleted."
+    }
+
+    fn schema(&self) -> ToolSchema {
+        ToolSchema {
+            schema_type: "object".to_string(),
+            properties: json!({
+                "label_id": {
+                    "type": "string",
+                    "description": "The ID of the label to delete"
+                }
+            }),
+            required: vec!["label_id".to_string()],
+        }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Network)
+            .with_tags(vec!["gmail", "email", "label", "delete", "google"])
+            .with_read_only(false)
+            .with_priority(55)
+            .with_requires(vec!["GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_ACCESS_TOKEN"])
+    }
+
+    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
+        let label_id = params
+            .get("label_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| kkr_core::Error::Tool("Missing label_id".to_string()))?;
+
+        self.client.delete_label(label_id).await?;
+
+        Ok(json!({
+            "success": true,
+            "deleted_label_id": label_id
+        }))
+    }
+}
+
+// ============================================================================
+// Gmail Attachment Tool
+// ============================================================================
+
+pub struct GmailAttachmentTool {
+    client: GmailClient,
+}
+
+impl GmailAttachmentTool {
+    pub fn new(client: GmailClient) -> Self {
+        Self { client }
+    }
+
+    pub fn from_env() -> Result<Self> {
+        Ok(Self::new(GmailClient::from_env()?))
+    }
+}
+
+#[async_trait]
+impl Tool for GmailAttachmentTool {
+    fn name(&self) -> &str {
+        "gmail_get_attachment"
+    }
+
+    fn description(&self) -> &str {
+        "Download an attachment from an email. Returns base64-encoded content."
+    }
+
+    fn schema(&self) -> ToolSchema {
+        ToolSchema {
+            schema_type: "object".to_string(),
+            properties: json!({
+                "message_id": {
+                    "type": "string",
+                    "description": "The ID of the message containing the attachment"
+                },
+                "attachment_id": {
+                    "type": "string",
+                    "description": "The ID of the attachment to download"
+                }
+            }),
+            required: vec!["message_id".to_string(), "attachment_id".to_string()],
+        }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Network)
+            .with_tags(vec!["gmail", "email", "attachment", "download", "google"])
+            .with_read_only(true)
+            .with_priority(70)
+            .with_requires(vec!["GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_ACCESS_TOKEN"])
+    }
+
+    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
+        let message_id = params
+            .get("message_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| kkr_core::Error::Tool("Missing message_id".to_string()))?;
+
+        let attachment_id = params
+            .get("attachment_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| kkr_core::Error::Tool("Missing attachment_id".to_string()))?;
+
+        let data = self.client.get_attachment(message_id, attachment_id).await?;
+
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        let encoded = STANDARD.encode(&data);
+
+        Ok(json!({
+            "success": true,
+            "message_id": message_id,
+            "attachment_id": attachment_id,
+            "size": data.len(),
+            "data_base64": encoded
+        }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_gmail_credentials_from_env() {
-        // Just test that the struct can be created
         let creds = GmailCredentials::new("client_id", "client_secret")
             .with_access_token("token")
             .with_refresh_token("refresh");

@@ -711,12 +711,217 @@ impl Tool for WebContentTool {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct BraveSearchTool {
+    client: Client,
+    api_key: Option<String>,
+    max_results: usize,
+}
+
+impl Default for BraveSearchTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl BraveSearchTool {
+    pub fn new() -> Self {
+        Self {
+            client: Client::builder()
+                .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
+                .build()
+                .expect("Failed to create HTTP client"),
+            api_key: std::env::var("BRAVE_API_KEY").ok(),
+            max_results: 5,
+        }
+    }
+
+    pub fn with_api_key(mut self, key: impl Into<String>) -> Self {
+        self.api_key = Some(key.into());
+        self
+    }
+
+    pub fn max_results(mut self, n: usize) -> Self {
+        self.max_results = n;
+        self
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct BraveSearchParams {
+    query: String,
+    #[serde(default)]
+    max_results: Option<usize>,
+    #[serde(default)]
+    country: Option<String>,
+    #[serde(default)]
+    search_lang: Option<String>,
+    #[serde(default)]
+    freshness: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BraveSearchResponse {
+    web: Option<BraveWebResults>,
+    query: Option<BraveQuery>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BraveWebResults {
+    results: Vec<BraveResult>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BraveResult {
+    title: Option<String>,
+    url: Option<String>,
+    description: Option<String>,
+    age: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BraveQuery {
+    original: Option<String>,
+}
+
+#[async_trait]
+impl Tool for BraveSearchTool {
+    fn name(&self) -> &str {
+        "brave_search"
+    }
+
+    fn description(&self) -> &str {
+        "Search the web using Brave Search - privacy-focused search engine"
+    }
+
+    fn schema(&self) -> ToolSchema {
+        ToolSchema {
+            schema_type: "object".to_string(),
+            properties: json!({
+                "query": {
+                    "type": "string",
+                    "description": "Search query"
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of results",
+                    "default": 5
+                },
+                "country": {
+                    "type": "string",
+                    "description": "Country code (US, GB, FR, etc.)",
+                    "default": "US"
+                },
+                "search_lang": {
+                    "type": "string",
+                    "description": "Search language (en, es, fr, etc.)",
+                    "default": "en"
+                },
+                "freshness": {
+                    "type": "string",
+                    "description": "Freshness filter: pd (past day), pw (past week), pm (past month), py (past year)"
+                }
+            }),
+            required: vec!["query".to_string()],
+        }
+    }
+
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(ToolCategory::Search)
+            .with_tags(vec!["search", "brave", "web", "privacy"])
+            .with_read_only(true)
+            .with_priority(85)
+            .with_requires(vec!["BRAVE_API_KEY"])
+            .with_example(ToolExample::new(
+                "Search for Rust tutorials",
+                json!({"query": "rust programming tutorials", "max_results": 5}),
+            ))
+    }
+
+    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
+        let env_key = std::env::var("BRAVE_API_KEY").ok();
+        let api_key = self
+            .api_key
+            .as_ref()
+            .or(env_key.as_ref())
+            .ok_or_else(|| kkr_core::Error::Tool("BRAVE_API_KEY not set".to_string()))?
+            .clone();
+
+        let params: BraveSearchParams = serde_json::from_value(params)
+            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+
+        let max_results = params.max_results.unwrap_or(self.max_results);
+        let country = params.country.unwrap_or_else(|| "US".to_string());
+        let search_lang = params.search_lang.unwrap_or_else(|| "en".to_string());
+
+        let mut query_params = vec![
+            ("q", params.query.clone()),
+            ("count", max_results.to_string()),
+            ("country", country),
+            ("search_lang", search_lang),
+            ("result_filter", "web".to_string()),
+        ];
+
+        if let Some(freshness) = params.freshness {
+            query_params.push(("freshness", freshness));
+        }
+
+        let response = self
+            .client
+            .get("https://api.search.brave.com/res/v1/web/search")
+            .header("Accept", "application/json")
+            .header("X-Subscription-Token", &api_key)
+            .query(&query_params)
+            .send()
+            .await
+            .map_err(|e| kkr_core::Error::Tool(format!("Request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(kkr_core::Error::Tool(format!(
+                "Brave API error {}: {}",
+                status, text
+            )));
+        }
+
+        let result: BraveSearchResponse = response
+            .json()
+            .await
+            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse response: {}", e)))?;
+
+        let web_results: Vec<Value> = result
+            .web
+            .map(|w| {
+                w.results
+                    .into_iter()
+                    .map(|r| {
+                        json!({
+                            "title": r.title,
+                            "url": r.url,
+                            "description": r.description,
+                            "age": r.age
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(json!({
+            "query": result.query.and_then(|q| q.original).unwrap_or(params.query),
+            "results": web_results,
+            "total_results": web_results.len()
+        }))
+    }
+}
+
 pub fn all_tools() -> Vec<Box<dyn Tool>> {
     vec![
         Box::new(ExaSearchTool::new()),
         Box::new(TavilySearchTool::new()),
         Box::new(SerperSearchTool::new()),
         Box::new(DuckDuckGoSearchTool::new()),
+        Box::new(BraveSearchTool::new()),
         Box::new(WebContentTool::new()),
     ]
 }
@@ -731,6 +936,7 @@ mod tests {
         let _ = TavilySearchTool::new();
         let _ = SerperSearchTool::new();
         let _ = DuckDuckGoSearchTool::new();
+        let _ = BraveSearchTool::new();
         let _ = WebContentTool::new();
     }
 
@@ -739,5 +945,8 @@ mod tests {
         let exa = ExaSearchTool::new();
         assert_eq!(exa.metadata().category, ToolCategory::Search);
         assert!(exa.metadata().read_only);
+
+        let brave = BraveSearchTool::new();
+        assert_eq!(brave.metadata().category, ToolCategory::Search);
     }
 }

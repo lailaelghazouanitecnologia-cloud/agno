@@ -18,6 +18,9 @@ pub enum ToolCategory {
     Math,
     Time,
     System,
+    Media,
+    Knowledge,
+    Communication,
     Custom,
 }
 

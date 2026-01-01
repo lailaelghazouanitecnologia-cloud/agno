@@ -25,6 +25,8 @@ members = [
     "crates/tools/email",
     "crates/tools/discord",
     "crates/tools/finance",
+    "crates/tools/youtube",
+    "crates/tools/duckdb",
     "crates/embedders",
     "crates/vectordb",
     "crates/mcp",
@@ -69,6 +71,9 @@ reqwest = { version = "0.11", features = ["json", "stream"] }
 # Channels
 async-channel = "2.1"
 crossbeam-channel = "0.5"
+
+# Regex
+regex = "1.10"
 
 # Internal crates
 kkr-core = { path = "crates/core" }

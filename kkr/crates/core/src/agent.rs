@@ -155,9 +155,77 @@ pub enum AgentEvent {
     MessageAdded { message: Message },
     ToolCallStarted { tool_name: String, tool_call_id: String },
     ToolCallCompleted { tool_call_id: String, success: bool },
+    ToolCallRequiresConfirmation {
+        tool_name: String,
+        tool_call_id: String,
+        arguments: serde_json::Value,
+    },
     ContentDelta { delta: String },
     RunCompleted { output: Output },
+    RunPaused { run_id: String, reason: PauseReason },
+    RunResumed { run_id: String },
     Error { error: String },
+}
+
+/// Reason an agent run was paused, matching legacy's Human-in-the-Loop patterns.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PauseReason {
+    ToolConfirmationRequired {
+        tool_name: String,
+        tool_call_id: String,
+        arguments: serde_json::Value,
+    },
+    UserInputRequired {
+        prompt: String,
+        fields: Vec<UserInputField>,
+    },
+}
+
+/// Field definition for user input during HITL.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserInputField {
+    pub name: String,
+    pub field_type: String,
+    pub description: Option<String>,
+    pub required: bool,
+}
+
+impl UserInputField {
+    pub fn new(name: impl Into<String>, field_type: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            field_type: field_type.into(),
+            description: None,
+            required: true,
+        }
+    }
+
+    pub fn optional(mut self) -> Self {
+        self.required = false;
+        self
+    }
+
+    pub fn description(mut self, desc: impl Into<String>) -> Self {
+        self.description = Some(desc.into());
+        self
+    }
+}
+
+/// Status of the agent run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RunStatus {
+    Pending,
+    Running,
+    Completed,
+    Paused,
+    Cancelled,
+    Error,
+}
+
+impl RunStatus {
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, RunStatus::Completed | RunStatus::Cancelled | RunStatus::Error)
+    }
 }
 
 pub struct Agent {
@@ -172,6 +240,20 @@ pub struct Agent {
     capsules: Vec<Capsule>,
     provider: Box<dyn Provider>,
     total_usage: Usage,
+    session_state: std::collections::HashMap<String, serde_json::Value>,
+    run_status: RunStatus,
+    paused_context: Option<PausedRunContext>,
+}
+
+/// Context saved when a run is paused for HITL.
+#[derive(Debug, Clone)]
+pub struct PausedRunContext {
+    pub run_id: String,
+    pub task: Task,
+    pub messages: Vec<Message>,
+    pub tools: Option<Vec<crate::tool::ToolDefinition>>,
+    pub iterations: usize,
+    pub pause_reason: PauseReason,
 }
 
 impl Agent {
@@ -194,6 +276,9 @@ impl Agent {
             capsules: Vec::new(),
             provider,
             total_usage: Usage::default(),
+            session_state: std::collections::HashMap::new(),
+            run_status: RunStatus::Pending,
+            paused_context: None,
         }
     }
 
@@ -534,6 +619,196 @@ impl Agent {
                     self.hooks.run_post_hooks(&mut hook_ctx, &output).await?;
                     if let Some(ref tx) = event_tx {
                         let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
+                    }
+                    return Ok(output);
+                }
+            }
+
+            iterations += 1;
+        }
+    }
+
+    // -- Session State Management (from legacy) --
+
+    pub fn session_state(&self) -> &std::collections::HashMap<String, serde_json::Value> {
+        &self.session_state
+    }
+
+    pub fn get_state(&self, key: &str) -> Option<&serde_json::Value> {
+        self.session_state.get(key)
+    }
+
+    pub fn set_state(&mut self, key: impl Into<String>, value: serde_json::Value) {
+        self.session_state.insert(key.into(), value);
+    }
+
+    pub fn remove_state(&mut self, key: &str) -> Option<serde_json::Value> {
+        self.session_state.remove(key)
+    }
+
+    pub fn clear_state(&mut self) {
+        self.session_state.clear();
+    }
+
+    pub fn run_status(&self) -> RunStatus {
+        self.run_status
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.run_status == RunStatus::Paused
+    }
+
+    pub fn pause_reason(&self) -> Option<&PauseReason> {
+        self.paused_context.as_ref().map(|ctx| &ctx.pause_reason)
+    }
+
+    /// Resume a paused run with user input (HITL continuation).
+    /// Corresponds to legacy's `continue_run()` method.
+    pub async fn continue_run(
+        &mut self,
+        user_input: serde_json::Value,
+        event_tx: Option<mpsc::Sender<AgentEvent>>,
+    ) -> Result<Output> {
+        let paused_ctx = match self.paused_context.take() {
+            Some(ctx) => ctx,
+            None => {
+                return Err(crate::Error::Agent(
+                    "Cannot continue: agent is not paused".to_string(),
+                ));
+            }
+        };
+
+        self.run_status = RunStatus::Running;
+
+        if let Some(ref tx) = event_tx {
+            let _ = tx
+                .send(AgentEvent::RunResumed {
+                    run_id: paused_ctx.run_id.clone(),
+                })
+                .await;
+        }
+
+        // Add user response as a tool message with the input
+        let user_response_msg = Message {
+            role: Role::User,
+            content: serde_json::to_string(&user_input).unwrap_or_default(),
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+        };
+
+        let mut messages = paused_ctx.messages;
+        messages.push(user_response_msg.clone());
+        self.memory.add(user_response_msg);
+
+        let mut iterations = paused_ctx.iterations;
+
+        loop {
+            if iterations >= self.config.max_iterations {
+                let output = Output::failure(paused_ctx.task.id, "Max iterations reached".to_string());
+                self.run_status = RunStatus::Completed;
+                if let Some(ref tx) = event_tx {
+                    let _ = tx
+                        .send(AgentEvent::RunCompleted {
+                            output: output.clone(),
+                        })
+                        .await;
+                }
+                return Ok(output);
+            }
+
+            let response = match self
+                .generate_with_retry(messages.clone(), paused_ctx.tools.clone())
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    self.run_status = RunStatus::Error;
+                    if let Some(ref tx) = event_tx {
+                        let _ = tx
+                            .send(AgentEvent::Error {
+                                error: e.to_string(),
+                            })
+                            .await;
+                    }
+                    return Err(e);
+                }
+            };
+
+            if let Some(ref usage) = response.usage {
+                self.total_usage.add(usage);
+            }
+
+            messages.push(response.message.clone());
+            self.memory.add(response.message.clone());
+
+            match response.finish_reason {
+                FinishReason::Stop => {
+                    let output = Output::success(paused_ctx.task.id, response.message.content);
+                    self.run_status = RunStatus::Completed;
+                    if let Some(ref tx) = event_tx {
+                        let _ = tx
+                            .send(AgentEvent::RunCompleted {
+                                output: output.clone(),
+                            })
+                            .await;
+                    }
+                    return Ok(output);
+                }
+                FinishReason::ToolCalls => {
+                    if let Some(tool_calls) = &response.message.tool_calls {
+                        for tool_call in tool_calls {
+                            if let Some(ref tx) = event_tx {
+                                let _ = tx
+                                    .send(AgentEvent::ToolCallStarted {
+                                        tool_name: tool_call.name.clone(),
+                                        tool_call_id: tool_call.id.clone(),
+                                    })
+                                    .await;
+                            }
+
+                            let result = self.execute_tool_call(tool_call).await;
+                            let success = result.is_ok();
+
+                            let tool_msg = Message {
+                                role: Role::Tool,
+                                content: match &result {
+                                    Ok(v) => serde_json::to_string(v).unwrap_or_default(),
+                                    Err(e) => format!("Error: {}", e),
+                                },
+                                name: Some(tool_call.name.clone()),
+                                tool_calls: None,
+                                tool_call_id: Some(tool_call.id.clone()),
+                            };
+
+                            messages.push(tool_msg.clone());
+                            self.memory.add(tool_msg);
+
+                            if let Some(ref tx) = event_tx {
+                                let _ = tx
+                                    .send(AgentEvent::ToolCallCompleted {
+                                        tool_call_id: tool_call.id.clone(),
+                                        success,
+                                    })
+                                    .await;
+                            }
+                        }
+                    }
+                }
+                FinishReason::Length | FinishReason::ContentFilter => {
+                    let msg = if response.finish_reason == FinishReason::Length {
+                        "Response too long"
+                    } else {
+                        "Content filtered"
+                    };
+                    let output = Output::failure(paused_ctx.task.id, msg.to_string());
+                    self.run_status = RunStatus::Error;
+                    if let Some(ref tx) = event_tx {
+                        let _ = tx
+                            .send(AgentEvent::RunCompleted {
+                                output: output.clone(),
+                            })
+                            .await;
                     }
                     return Ok(output);
                 }

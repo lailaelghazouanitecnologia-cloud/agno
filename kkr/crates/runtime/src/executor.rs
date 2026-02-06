@@ -70,6 +70,7 @@ pub struct Executor {
     semaphore: Arc<Semaphore>,
     statuses: Arc<RwLock<HashMap<Id, TaskStatus>>>,
     active_tasks: Arc<Mutex<usize>>,
+    shutdown: Arc<RwLock<bool>>,
 }
 
 impl Executor {
@@ -83,6 +84,7 @@ impl Executor {
             semaphore,
             statuses: Arc::new(RwLock::new(HashMap::new())),
             active_tasks: Arc::new(Mutex::new(0)),
+            shutdown: Arc::new(RwLock::new(false)),
         }
     }
 
@@ -243,6 +245,121 @@ impl Executor {
 
     pub async fn all_statuses(&self) -> Vec<TaskStatus> {
         self.statuses.read().await.values().cloned().collect()
+    }
+
+    /// Initiate graceful shutdown: no new tasks accepted, waits for active tasks.
+    pub async fn shutdown(&self) {
+        {
+            let mut shutdown = self.shutdown.write().await;
+            *shutdown = true;
+        }
+        info!("Executor shutting down, waiting for active tasks to complete");
+
+        let timeout = std::time::Duration::from_secs(self.config.shutdown_timeout_secs);
+        let start = std::time::Instant::now();
+
+        loop {
+            let active = *self.active_tasks.lock().await;
+            if active == 0 {
+                info!("All active tasks completed, shutdown successful");
+                break;
+            }
+            if start.elapsed() >= timeout {
+                warn!(
+                    active_tasks = active,
+                    "Shutdown timeout reached, {} tasks still running",
+                    active
+                );
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }
+
+    /// Check if the executor is shutting down.
+    pub async fn is_shutdown(&self) -> bool {
+        *self.shutdown.read().await
+    }
+
+    /// Submit a task, rejecting if shutdown is in progress.
+    pub async fn submit_checked(&self, task: Task) -> Result<Id, ExecutorError> {
+        if *self.shutdown.read().await {
+            return Err(ExecutorError::Shutdown);
+        }
+        self.submit(task).await
+    }
+
+    /// Submit a task with retry on failure. Retries with exponential backoff.
+    pub async fn submit_with_retry<F>(
+        &self,
+        task: Task,
+        handler: F,
+        max_retries: usize,
+        base_delay_ms: u64,
+    ) -> Output
+    where
+        F: Fn(Task) -> TaskFuture + Send + Sync + 'static,
+    {
+        let task_id = task.id;
+        let mut current_task = task;
+        let mut last_output = None;
+
+        for attempt in 0..=max_retries {
+            let _permit = self.semaphore.clone().acquire_owned().await.unwrap();
+            let output = handler(current_task.clone()).await;
+
+            if output.is_success() || attempt == max_retries {
+                // Update status
+                {
+                    let mut statuses = self.statuses.write().await;
+                    statuses.insert(
+                        task_id,
+                        TaskStatus {
+                            id: task_id,
+                            status: output.status,
+                            output: Some(output.clone()),
+                            submitted_at: std::time::Instant::now(),
+                            completed_at: Some(std::time::Instant::now()),
+                        },
+                    );
+                }
+                return output;
+            }
+
+            last_output = Some(output);
+
+            let delay = base_delay_ms * 2u64.pow(attempt as u32);
+            debug!(
+                task_id = %task_id,
+                attempt = attempt + 1,
+                delay_ms = delay,
+                "Retrying failed task"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+
+            current_task = current_task.clone();
+        }
+
+        last_output.unwrap_or_else(|| Output::failure(task_id, "All retries exhausted".to_string()))
+    }
+
+    /// Wait until all pending and active tasks are complete (or timeout).
+    pub async fn wait_for_completion(&self, timeout_secs: u64) -> bool {
+        let timeout = std::time::Duration::from_secs(timeout_secs);
+        let start = std::time::Instant::now();
+
+        loop {
+            let pending = self.queue.len().await;
+            let active = *self.active_tasks.lock().await;
+
+            if pending == 0 && active == 0 {
+                return true;
+            }
+            if start.elapsed() >= timeout {
+                return false;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
     }
 }
 

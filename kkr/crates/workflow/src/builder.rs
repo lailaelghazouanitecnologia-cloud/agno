@@ -1,6 +1,10 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::step::{CallbackStep, ConditionalStep, ParallelStep, Step, StepContext, StepResult};
+use crate::step::{
+    CallbackStep, ConditionalStep, LoopStep, ParallelStep, RetryStep, RouterStep, Step,
+    StepContext, StepResult,
+};
 use crate::workflow::{Workflow, WorkflowConfig};
 
 pub struct WorkflowBuilder {
@@ -69,6 +73,37 @@ impl WorkflowBuilder {
     pub fn parallel(self, name: impl Into<String>, steps: Vec<Arc<dyn Step>>) -> Self {
         debug_assert!(!steps.is_empty(), "parallel steps must not be empty");
         self.step(ParallelStep::new(name, steps))
+    }
+
+    pub fn loop_step<F>(
+        self,
+        name: impl Into<String>,
+        inner: Arc<dyn Step>,
+        end_condition: F,
+        max_iterations: usize,
+    ) -> Self
+    where
+        F: Fn(&StepContext) -> bool + Send + Sync + 'static,
+    {
+        debug_assert!(max_iterations > 0, "max_iterations must be positive");
+        self.step(LoopStep::new(name, inner, end_condition, max_iterations))
+    }
+
+    pub fn router<F>(
+        self,
+        name: impl Into<String>,
+        routes: HashMap<String, Arc<dyn Step>>,
+        selector: F,
+    ) -> Self
+    where
+        F: Fn(&StepContext) -> String + Send + Sync + 'static,
+    {
+        debug_assert!(!routes.is_empty(), "routes must not be empty");
+        self.step(RouterStep::new(name, routes, selector))
+    }
+
+    pub fn retry(self, name: impl Into<String>, inner: Arc<dyn Step>, max_retries: usize) -> Self {
+        self.step(RetryStep::new(name, inner, max_retries))
     }
 
     pub fn start_at(mut self, name: impl Into<String>) -> Self {

@@ -287,3 +287,312 @@ where
         (self.callback)(ctx)
     }
 }
+
+/// LoopStep: Repeats an inner step until a condition returns true or max_iterations is reached.
+/// Based on legacy Python's Loop workflow step.
+pub struct LoopStep {
+    name: String,
+    inner: Arc<dyn Step>,
+    end_condition: Box<dyn Fn(&StepContext) -> bool + Send + Sync>,
+    max_iterations: usize,
+}
+
+impl LoopStep {
+    pub fn new<F>(
+        name: impl Into<String>,
+        inner: Arc<dyn Step>,
+        end_condition: F,
+        max_iterations: usize,
+    ) -> Self
+    where
+        F: Fn(&StepContext) -> bool + Send + Sync + 'static,
+    {
+        let name = name.into();
+        debug_assert!(!name.is_empty(), "step name must not be empty");
+        debug_assert!(max_iterations > 0, "max_iterations must be positive");
+
+        Self {
+            name,
+            inner,
+            end_condition: Box::new(end_condition),
+            max_iterations,
+        }
+    }
+}
+
+#[async_trait]
+impl Step for LoopStep {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        "Loop step that repeats until condition is met"
+    }
+
+    async fn execute(&self, ctx: &mut StepContext) -> StepResult {
+        let mut iteration = 0;
+        let mut last_result = None;
+
+        loop {
+            if iteration >= self.max_iterations {
+                return StepResult::failure(
+                    ctx.step_id,
+                    format!(
+                        "Loop '{}' reached max iterations ({})",
+                        self.name, self.max_iterations
+                    ),
+                );
+            }
+
+            let mut inner_ctx = StepContext::new(ctx.workflow_id, new_id());
+            inner_ctx.inputs = ctx.inputs.clone();
+            // Pass accumulated outputs as inputs to inner step
+            for (k, v) in &ctx.outputs {
+                inner_ctx.inputs.insert(k.clone(), v.clone());
+            }
+            inner_ctx
+                .inputs
+                .insert("_iteration".to_string(), serde_json::json!(iteration));
+
+            let result = self.inner.execute(&mut inner_ctx).await;
+
+            if result.is_failure() {
+                return result;
+            }
+
+            // Merge inner outputs back
+            for (k, v) in &inner_ctx.outputs {
+                ctx.outputs.insert(k.clone(), v.clone());
+            }
+            if let Some(ref output) = result.output {
+                ctx.inputs
+                    .insert("_last_output".to_string(), output.clone());
+            }
+
+            last_result = Some(result);
+            iteration += 1;
+
+            if (self.end_condition)(ctx) {
+                break;
+            }
+        }
+
+        match last_result {
+            Some(result) => StepResult::success(
+                ctx.step_id,
+                serde_json::json!({
+                    "iterations": iteration,
+                    "last_output": result.output,
+                }),
+            ),
+            None => StepResult::success(
+                ctx.step_id,
+                serde_json::json!({"iterations": 0}),
+            ),
+        }
+    }
+}
+
+/// RouterStep: Dynamically routes execution to one of several named steps
+/// based on a selector function. Based on legacy Python's Router workflow step.
+pub struct RouterStep {
+    name: String,
+    routes: HashMap<String, Arc<dyn Step>>,
+    selector: Box<dyn Fn(&StepContext) -> String + Send + Sync>,
+    fallback: Option<String>,
+}
+
+impl RouterStep {
+    pub fn new<F>(
+        name: impl Into<String>,
+        routes: HashMap<String, Arc<dyn Step>>,
+        selector: F,
+    ) -> Self
+    where
+        F: Fn(&StepContext) -> String + Send + Sync + 'static,
+    {
+        let name = name.into();
+        debug_assert!(!name.is_empty(), "step name must not be empty");
+        debug_assert!(!routes.is_empty(), "routes must not be empty");
+
+        Self {
+            name,
+            routes,
+            selector: Box::new(selector),
+            fallback: None,
+        }
+    }
+
+    pub fn with_fallback(mut self, fallback: impl Into<String>) -> Self {
+        self.fallback = Some(fallback.into());
+        self
+    }
+
+    pub fn route_names(&self) -> Vec<&str> {
+        self.routes.keys().map(|s| s.as_str()).collect()
+    }
+}
+
+#[async_trait]
+impl Step for RouterStep {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        "Router step that directs execution to a selected route"
+    }
+
+    async fn execute(&self, ctx: &mut StepContext) -> StepResult {
+        let selected = (self.selector)(ctx);
+
+        let step = match self.routes.get(&selected) {
+            Some(step) => step,
+            None => match &self.fallback {
+                Some(fallback_name) => match self.routes.get(fallback_name) {
+                    Some(step) => step,
+                    None => {
+                        return StepResult::failure(
+                            ctx.step_id,
+                            format!("Fallback route '{}' not found", fallback_name),
+                        );
+                    }
+                },
+                None => {
+                    return StepResult::failure(
+                        ctx.step_id,
+                        format!("Route '{}' not found and no fallback defined", selected),
+                    );
+                }
+            },
+        };
+
+        let mut route_ctx = StepContext::new(ctx.workflow_id, new_id());
+        route_ctx.inputs = ctx.inputs.clone();
+
+        let result = step.execute(&mut route_ctx).await;
+
+        // Merge route outputs back into parent context
+        for (k, v) in &route_ctx.outputs {
+            ctx.outputs.insert(k.clone(), v.clone());
+        }
+
+        if result.is_success() {
+            StepResult::success(
+                ctx.step_id,
+                serde_json::json!({
+                    "selected_route": selected,
+                    "route_output": result.output,
+                }),
+            )
+        } else {
+            StepResult::failure(
+                ctx.step_id,
+                format!(
+                    "Route '{}' failed: {}",
+                    selected,
+                    result.error.unwrap_or_default()
+                ),
+            )
+        }
+    }
+}
+
+/// RetryStep: Wraps another step and retries on failure with configurable backoff.
+pub struct RetryStep {
+    name: String,
+    inner: Arc<dyn Step>,
+    max_retries: usize,
+    delay_ms: u64,
+    exponential_backoff: bool,
+}
+
+impl RetryStep {
+    pub fn new(name: impl Into<String>, inner: Arc<dyn Step>, max_retries: usize) -> Self {
+        let name = name.into();
+        debug_assert!(!name.is_empty(), "step name must not be empty");
+
+        Self {
+            name,
+            inner,
+            max_retries,
+            delay_ms: 1000,
+            exponential_backoff: true,
+        }
+    }
+
+    pub fn delay_ms(mut self, ms: u64) -> Self {
+        self.delay_ms = ms;
+        self
+    }
+
+    pub fn exponential_backoff(mut self, enabled: bool) -> Self {
+        self.exponential_backoff = enabled;
+        self
+    }
+}
+
+#[async_trait]
+impl Step for RetryStep {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        "Retry step with configurable backoff"
+    }
+
+    fn retries(&self) -> usize {
+        self.max_retries
+    }
+
+    async fn execute(&self, ctx: &mut StepContext) -> StepResult {
+        let mut last_error = None;
+
+        for attempt in 0..=self.max_retries {
+            let mut attempt_ctx = StepContext::new(ctx.workflow_id, new_id());
+            attempt_ctx.inputs = ctx.inputs.clone();
+            attempt_ctx
+                .inputs
+                .insert("_attempt".to_string(), serde_json::json!(attempt));
+
+            let result = self.inner.execute(&mut attempt_ctx).await;
+
+            if result.is_success() {
+                // Merge outputs back
+                for (k, v) in &attempt_ctx.outputs {
+                    ctx.outputs.insert(k.clone(), v.clone());
+                }
+                return StepResult::success(
+                    ctx.step_id,
+                    serde_json::json!({
+                        "attempts": attempt + 1,
+                        "output": result.output,
+                    }),
+                );
+            }
+
+            last_error = result.error;
+
+            if attempt < self.max_retries {
+                let delay = if self.exponential_backoff {
+                    self.delay_ms * 2u64.pow(attempt as u32)
+                } else {
+                    self.delay_ms
+                };
+                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+            }
+        }
+
+        StepResult::failure(
+            ctx.step_id,
+            format!(
+                "Step '{}' failed after {} retries: {}",
+                self.inner.name(),
+                self.max_retries,
+                last_error.unwrap_or_default()
+            ),
+        )
+    }
+}

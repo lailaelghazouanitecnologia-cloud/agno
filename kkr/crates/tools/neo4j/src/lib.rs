@@ -112,7 +112,7 @@ impl Tool for Neo4jQueryTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: QueryParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let url = format!(
             "{}/db/{}/tx/commit",
@@ -135,12 +135,12 @@ impl Tool for Neo4jQueryTool {
             .json(&body)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(kkr_core::Error::Tool(format!(
+            return Err(kkr_core::Error::tool(format!(
                 "Neo4j error {}: {}",
                 status, text
             )));
@@ -149,11 +149,11 @@ impl Tool for Neo4jQueryTool {
         let result: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
 
         if let Some(errors) = result["errors"].as_array() {
             if !errors.is_empty() {
-                return Err(kkr_core::Error::Tool(format!(
+                return Err(kkr_core::Error::tool(format!(
                     "Neo4j query error: {:?}",
                     errors
                 )));
@@ -285,12 +285,12 @@ impl Tool for Neo4jSchemaTool {
             .json(&body)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
 
         let result: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
 
         let results = result["results"].as_array().cloned().unwrap_or_default();
 
@@ -413,7 +413,7 @@ impl Tool for Neo4jNodesTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: NodesParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let limit = params.limit.unwrap_or(25);
 
@@ -449,12 +449,12 @@ impl Tool for Neo4jNodesTool {
             .json(&body)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
 
         let result: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
 
         let nodes: Vec<Value> = result["results"]
             .as_array()
@@ -559,7 +559,7 @@ impl Tool for Neo4jRelationshipsTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: RelationshipsParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let limit = params.limit.unwrap_or(25);
 
@@ -604,12 +604,12 @@ impl Tool for Neo4jRelationshipsTool {
             .json(&body)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
 
         let result: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
 
         let relationships: Vec<Value> = result["results"]
             .as_array()

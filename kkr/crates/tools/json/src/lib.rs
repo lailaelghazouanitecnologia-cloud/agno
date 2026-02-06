@@ -57,10 +57,10 @@ impl Tool for JsonParseTool {
         let input = params
             .get("input")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| kkr_core::Error::Tool("Missing input".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("Missing input".to_string()))?;
 
         let parsed: Value = serde_json::from_str(input)
-            .map_err(|e| kkr_core::Error::Tool(format!("Parse error: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Parse error: {}", e)))?;
 
         Ok(json!({
             "parsed": parsed,
@@ -162,7 +162,7 @@ impl Tool for JsonQueryTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: QueryParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let result = Self::query_path(&params.data, &params.path);
 
@@ -236,14 +236,14 @@ impl Tool for JsonFormatTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: FormatParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let formatted = if params.pretty {
             serde_json::to_string_pretty(&params.data)
-                .map_err(|e| kkr_core::Error::Tool(format!("Format error: {}", e)))?
+                .map_err(|e| kkr_core::Error::tool(format!("Format error: {}", e)))?
         } else {
             serde_json::to_string(&params.data)
-                .map_err(|e| kkr_core::Error::Tool(format!("Format error: {}", e)))?
+                .map_err(|e| kkr_core::Error::tool(format!("Format error: {}", e)))?
         };
 
         Ok(json!({
@@ -335,7 +335,7 @@ impl Tool for JsonMergeTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: MergeParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let mut result = params.base;
 
@@ -348,7 +348,7 @@ impl Tool for JsonMergeTool {
                 base_map.insert(k.clone(), v.clone());
             }
         } else {
-            return Err(kkr_core::Error::Tool(
+            return Err(kkr_core::Error::tool(
                 "Both base and patch must be objects".to_string(),
             ));
         }
@@ -406,7 +406,7 @@ impl Tool for JsonKeysTool {
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let data = params
             .get("data")
-            .ok_or_else(|| kkr_core::Error::Tool("Missing data".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("Missing data".to_string()))?;
 
         match data {
             Value::Object(map) => {
@@ -416,7 +416,7 @@ impl Tool for JsonKeysTool {
                     "count": keys.len()
                 }))
             }
-            _ => Err(kkr_core::Error::Tool("Data must be an object".to_string())),
+            _ => Err(kkr_core::Error::tool("Data must be an object".to_string())),
         }
     }
 }
@@ -467,7 +467,7 @@ impl Tool for JsonTypeTool {
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let data = params
             .get("data")
-            .ok_or_else(|| kkr_core::Error::Tool("Missing data".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("Missing data".to_string()))?;
 
         let type_name = match data {
             Value::Null => "null",

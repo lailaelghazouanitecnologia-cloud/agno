@@ -188,23 +188,23 @@ impl Provider for Ollama {
             .json(&request)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Provider(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::provider("ollama",format!("Request failed: {}", e)))?;
 
         let status = response.status();
         let body = response
             .text()
             .await
-            .map_err(|e| kkr_core::Error::Provider(format!("Failed to read response: {}", e)))?;
+            .map_err(|e| kkr_core::Error::provider("ollama",format!("Failed to read response: {}", e)))?;
 
         if !status.is_success() {
-            return Err(kkr_core::Error::Provider(format!(
+            return Err(kkr_core::Error::provider("ollama",format!(
                 "API error ({}): {}",
                 status, body
             )));
         }
 
         let api_response: ApiResponse = serde_json::from_str(&body).map_err(|e| {
-            kkr_core::Error::Provider(format!("Failed to parse response: {} - {}", e, body))
+            kkr_core::Error::provider("ollama",format!("Failed to parse response: {} - {}", e, body))
         })?;
 
         let tool_calls = api_response.message.tool_calls.map(|tcs| {

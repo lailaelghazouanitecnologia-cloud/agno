@@ -84,12 +84,20 @@ pub struct AgentConfig {
     pub retry_delay_ms: u64,
     pub exponential_backoff: bool,
     pub stream: bool,
+    pub approval_policy: ApprovalPolicy,
 }
 
 impl AgentConfig {
     pub fn new(name: impl Into<String>) -> Self {
         let name = name.into();
         debug_assert!(!name.is_empty(), "agent name must not be empty");
+        // Runtime: fall back to a default name if empty
+        let name = if name.is_empty() {
+            tracing::warn!("AgentConfig::new called with empty name, using default");
+            "Agent".to_string()
+        } else {
+            name
+        };
 
         Self {
             name,
@@ -99,6 +107,7 @@ impl AgentConfig {
             retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
             exponential_backoff: false,
             stream: false,
+            approval_policy: ApprovalPolicy::default(),
         }
     }
 
@@ -109,7 +118,13 @@ impl AgentConfig {
 
     pub fn with_max_iterations(mut self, max: usize) -> Self {
         debug_assert!(max > 0, "max_iterations must be positive");
-        self.max_iterations = max;
+        // Runtime: clamp to at least 1
+        self.max_iterations = if max == 0 {
+            tracing::warn!("max_iterations was 0, clamping to 1");
+            1
+        } else {
+            max
+        };
         self
     }
 
@@ -120,7 +135,13 @@ impl AgentConfig {
 
     pub fn with_retry_delay(mut self, delay_ms: u64) -> Self {
         debug_assert!(delay_ms > 0, "retry_delay_ms must be positive");
-        self.retry_delay_ms = delay_ms;
+        // Runtime: clamp to at least 1ms
+        self.retry_delay_ms = if delay_ms == 0 {
+            tracing::warn!("retry_delay_ms was 0, clamping to 1");
+            1
+        } else {
+            delay_ms
+        };
         self
     }
 
@@ -131,6 +152,11 @@ impl AgentConfig {
 
     pub fn with_stream(mut self, stream: bool) -> Self {
         self.stream = stream;
+        self
+    }
+
+    pub fn with_approval_policy(mut self, policy: ApprovalPolicy) -> Self {
+        self.approval_policy = policy;
         self
     }
 }
@@ -145,6 +171,7 @@ impl Default for AgentConfig {
             retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
             exponential_backoff: false,
             stream: false,
+            approval_policy: ApprovalPolicy::default(),
         }
     }
 }
@@ -228,6 +255,62 @@ impl RunStatus {
     }
 }
 
+/// Tool execution approval policy (inspired by Codex CLI).
+///
+/// Controls when the agent pauses to request human approval before
+/// executing tool calls. Mirrors the four autonomy levels from
+/// OpenAI's Codex CLI:
+///
+/// - `Always`   -- pause on every non-read-only tool call
+/// - `SafeOnly` -- auto-approve read-only tools, pause on others (default)
+/// - `Never`    -- auto-approve everything (dangerous, for trusted envs)
+/// - `OnFailure`-- try in sandbox first, only pause on failure
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ApprovalPolicy {
+    /// Always ask for approval on non-read-only tools.
+    Always,
+    /// Auto-approve read-only tools, ask for others (default).
+    SafeOnly,
+    /// Never ask -- auto-approve everything (dangerous).
+    Never,
+    /// Try in sandbox first, ask on failure.
+    OnFailure,
+}
+
+impl Default for ApprovalPolicy {
+    fn default() -> Self {
+        Self::SafeOnly
+    }
+}
+
+impl ApprovalPolicy {
+    /// Returns `true` when the policy requires confirmation for a tool with
+    /// the given `read_only` flag.
+    pub fn requires_approval(&self, read_only: bool) -> bool {
+        match self {
+            ApprovalPolicy::Always => !read_only,
+            ApprovalPolicy::SafeOnly => !read_only,
+            ApprovalPolicy::Never => false,
+            // OnFailure defers to sandbox; for the initial call we do NOT
+            // require approval -- it will be requested after sandbox failure.
+            ApprovalPolicy::OnFailure => false,
+        }
+    }
+}
+
+/// Decision for a tool execution approval request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApprovalDecision {
+    /// Execute once.
+    Approve,
+    /// Execute and remember for this session.
+    ApproveForSession,
+    /// Reject but continue the run.
+    Deny,
+    /// Reject and cancel the entire run.
+    Cancel,
+}
+
 pub struct Agent {
     pub id: Id,
     pub config: AgentConfig,
@@ -243,6 +326,10 @@ pub struct Agent {
     session_state: std::collections::HashMap<String, serde_json::Value>,
     run_status: RunStatus,
     paused_context: Option<PausedRunContext>,
+    /// Session-scoped set of tool names that have been approved via
+    /// `ApprovalDecision::ApproveForSession`. Checked before emitting
+    /// a confirmation event so the user is not asked twice.
+    approved_tools: std::collections::HashSet<String>,
 }
 
 /// Context saved when a run is paused for HITL.
@@ -263,6 +350,9 @@ impl Agent {
         provider: Box<dyn Provider>,
     ) -> Self {
         debug_assert!(!config.name.is_empty(), "agent name must not be empty");
+        if config.name.is_empty() {
+            tracing::warn!("Agent::new called with empty config name");
+        }
 
         Self {
             id: crate::new_id(),
@@ -279,6 +369,7 @@ impl Agent {
             session_state: std::collections::HashMap::new(),
             run_status: RunStatus::Pending,
             paused_context: None,
+            approved_tools: std::collections::HashSet::new(),
         }
     }
 
@@ -290,6 +381,11 @@ impl Agent {
     pub fn with_session(mut self, session_id: impl Into<String>) -> Self {
         let session_id = session_id.into();
         debug_assert!(!session_id.is_empty(), "session_id must not be empty");
+        // Runtime: skip setting empty session_id
+        if session_id.is_empty() {
+            tracing::warn!("with_session called with empty session_id, ignoring");
+            return self;
+        }
         self.session_id = Some(session_id);
         self.memory = self.memory.with_session(self.session_id.as_ref().unwrap());
         self
@@ -298,6 +394,11 @@ impl Agent {
     pub fn with_user(mut self, user_id: impl Into<String>) -> Self {
         let user_id = user_id.into();
         debug_assert!(!user_id.is_empty(), "user_id must not be empty");
+        // Runtime: skip setting empty user_id
+        if user_id.is_empty() {
+            tracing::warn!("with_user called with empty user_id, ignoring");
+            return self;
+        }
         self.user_id = Some(user_id);
         self.memory = self.memory.with_user(self.user_id.as_ref().unwrap());
         self
@@ -320,16 +421,30 @@ impl Agent {
             !self.capsules.iter().any(|c| c.name() == capsule.name()),
             "capsule with this name already exists"
         );
+        // Runtime duplicate check: silently skip if a capsule with this name already exists
+        if self.capsules.iter().any(|c| c.name() == capsule.name()) {
+            tracing::warn!(
+                capsule_name = capsule.name(),
+                "Capsule with this name already exists, skipping duplicate"
+            );
+            return;
+        }
         self.capsules.push(capsule);
     }
 
     pub fn get_capsule(&self, name: &str) -> Option<&Capsule> {
         debug_assert!(!name.is_empty(), "capsule name must not be empty");
+        if name.is_empty() {
+            return None;
+        }
         self.capsules.iter().find(|c| c.name() == name)
     }
 
     pub fn get_capsule_mut(&mut self, name: &str) -> Option<&mut Capsule> {
         debug_assert!(!name.is_empty(), "capsule name must not be empty");
+        if name.is_empty() {
+            return None;
+        }
         self.capsules.iter_mut().find(|c| c.name() == name)
     }
 
@@ -390,13 +505,19 @@ impl Agent {
 
     async fn execute_tool_call(&self, tool_call: &ToolCall) -> Result<serde_json::Value> {
         debug_assert!(!tool_call.name.is_empty(), "tool call name must not be empty");
+        if tool_call.name.is_empty() {
+            return Err(crate::Error::Validation {
+                field: "tool_call.name".to_string(),
+                message: "tool call name must not be empty".to_string(),
+            });
+        }
 
         let parts: Vec<&str> = tool_call.name.splitn(2, '_').collect();
         if parts.len() != 2 {
-            return Err(crate::Error::Tool(format!(
-                "Invalid tool name format: {}",
-                tool_call.name
-            )));
+            return Err(crate::Error::Tool {
+                tool: tool_call.name.clone(),
+                message: format!("Invalid tool name format: {}", tool_call.name),
+            });
         }
 
         let capsule_name = parts[0];
@@ -409,7 +530,7 @@ impl Agent {
             .capsules
             .iter()
             .find(|c| c.name() == capsule_name)
-            .ok_or_else(|| crate::Error::Capsule(format!("Capsule not found: {}", capsule_name)))?;
+            .ok_or_else(|| crate::Error::Capsule { message: format!("Capsule not found: {}", capsule_name) })?;
 
         let workspace_root = Some(self.workspace.root().to_owned());
         capsule
@@ -443,9 +564,10 @@ impl Agent {
         Err(last_error.unwrap())
     }
 
-    fn create_hook_context(&self, run_id: &str, task: &Task) -> HookContext {
+    async fn create_hook_context(&self, run_id: &str, task: &Task) -> Result<HookContext> {
+        let messages = self.memory.messages_async().await?;
         let mut ctx = HookContext::new(self.id.to_string(), run_id)
-            .with_messages(self.memory.messages())
+            .with_messages(messages)
             .with_task(task.clone());
 
         if let Some(ref session_id) = self.session_id {
@@ -455,7 +577,7 @@ impl Agent {
             ctx = ctx.with_user(user_id);
         }
 
-        ctx
+        Ok(ctx)
     }
 
     pub async fn run(&mut self, task: Task) -> Result<Output> {
@@ -467,7 +589,12 @@ impl Agent {
         task: Task,
         event_tx: Option<mpsc::Sender<AgentEvent>>,
     ) -> Result<Output> {
-        debug_assert!(!task.input.is_empty(), "task input must not be empty");
+        if task.input.is_empty() {
+            return Err(crate::Error::Validation {
+                field: "task.input".to_string(),
+                message: "task input must not be empty".to_string(),
+            });
+        }
 
         let run_id = crate::new_id().to_string();
 
@@ -475,7 +602,7 @@ impl Agent {
             let _ = tx.send(AgentEvent::RunStarted { run_id: run_id.clone() }).await;
         }
 
-        let mut hook_ctx = self.create_hook_context(&run_id, &task);
+        let mut hook_ctx = self.create_hook_context(&run_id, &task).await?;
         let pre_result = self.hooks.run_pre_hooks(&mut hook_ctx).await?;
         if pre_result.should_abort() {
             let output = Output::failure(task.id, "Aborted by pre-hook".to_string());
@@ -487,8 +614,8 @@ impl Agent {
 
         let mut messages = vec![self.system_message()];
 
-        for msg in self.memory.messages() {
-            messages.push(msg.clone());
+        for msg in self.memory.messages_async().await? {
+            messages.push(msg);
         }
 
         let user_msg = Message {
@@ -499,7 +626,7 @@ impl Agent {
             tool_call_id: None,
         };
         messages.push(user_msg.clone());
-        self.memory.add(user_msg.clone());
+        self.memory.add_async(user_msg.clone()).await?;
 
         if let Some(ref tx) = event_tx {
             let _ = tx.send(AgentEvent::MessageAdded { message: user_msg }).await;
@@ -535,7 +662,7 @@ impl Agent {
             }
 
             messages.push(response.message.clone());
-            self.memory.add(response.message.clone());
+            self.memory.add_async(response.message.clone()).await?;
 
             if let Some(ref tx) = event_tx {
                 let _ = tx.send(AgentEvent::MessageAdded { message: response.message.clone() }).await;
@@ -560,6 +687,58 @@ impl Agent {
                                 if let Some(ref tx) = event_tx {
                                     let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
                                 }
+                                return Ok(output);
+                            }
+
+                            // -- Approval policy check --
+                            // Look up whether this tool is read-only from the
+                            // collected definitions so we can decide whether
+                            // the configured policy requires human approval.
+                            let tool_is_read_only = tools_opt
+                                .as_ref()
+                                .and_then(|defs| defs.iter().find(|d| d.name == tool_call.name))
+                                .map(|d| d.metadata.read_only)
+                                .unwrap_or(false);
+
+                            let needs_approval = self.config.approval_policy
+                                .requires_approval(tool_is_read_only)
+                                && !self.approved_tools.contains(&tool_call.name);
+
+                            if needs_approval {
+                                // Emit confirmation event so the UI can prompt
+                                if let Some(ref tx) = event_tx {
+                                    let _ = tx.send(AgentEvent::ToolCallRequiresConfirmation {
+                                        tool_name: tool_call.name.clone(),
+                                        tool_call_id: tool_call.id.clone(),
+                                        arguments: tool_call.arguments.clone(),
+                                    }).await;
+                                }
+
+                                // Pause the run and save context for later
+                                // resumption via `continue_run`.
+                                self.run_status = RunStatus::Paused;
+                                let pause_reason = PauseReason::ToolConfirmationRequired {
+                                    tool_name: tool_call.name.clone(),
+                                    tool_call_id: tool_call.id.clone(),
+                                    arguments: tool_call.arguments.clone(),
+                                };
+                                self.paused_context = Some(PausedRunContext {
+                                    run_id: run_id.clone(),
+                                    task: task.clone(),
+                                    messages: messages.clone(),
+                                    tools: tools_opt.clone(),
+                                    iterations,
+                                    pause_reason: pause_reason.clone(),
+                                });
+
+                                if let Some(ref tx) = event_tx {
+                                    let _ = tx.send(AgentEvent::RunPaused {
+                                        run_id: run_id.clone(),
+                                        reason: pause_reason,
+                                    }).await;
+                                }
+
+                                let output = Output::paused(task.id, "Awaiting tool approval".to_string());
                                 return Ok(output);
                             }
 
@@ -592,7 +771,7 @@ impl Agent {
                             };
 
                             messages.push(tool_msg.clone());
-                            self.memory.add(tool_msg.clone());
+                            self.memory.add_async(tool_msg.clone()).await?;
 
                             if let Some(ref tx) = event_tx {
                                 let _ = tx.send(AgentEvent::ToolCallCompleted {
@@ -662,6 +841,27 @@ impl Agent {
         self.paused_context.as_ref().map(|ctx| &ctx.pause_reason)
     }
 
+    /// Record a session-level approval for a specific tool name so the
+    /// user is not prompted again for the same tool in this session.
+    pub fn approve_tool_for_session(&mut self, tool_name: impl Into<String>) {
+        self.approved_tools.insert(tool_name.into());
+    }
+
+    /// Check whether a tool has been session-approved.
+    pub fn is_tool_approved(&self, tool_name: &str) -> bool {
+        self.approved_tools.contains(tool_name)
+    }
+
+    /// Clear all session-level tool approvals.
+    pub fn clear_approved_tools(&mut self) {
+        self.approved_tools.clear();
+    }
+
+    /// Return the current approval policy.
+    pub fn approval_policy(&self) -> ApprovalPolicy {
+        self.config.approval_policy
+    }
+
     /// Resume a paused run with user input (HITL continuation).
     /// Corresponds to legacy's `continue_run()` method.
     pub async fn continue_run(
@@ -672,9 +872,10 @@ impl Agent {
         let paused_ctx = match self.paused_context.take() {
             Some(ctx) => ctx,
             None => {
-                return Err(crate::Error::Agent(
-                    "Cannot continue: agent is not paused".to_string(),
-                ));
+                return Err(crate::Error::Agent {
+                    message: "Cannot continue: agent is not paused".to_string(),
+                    source: None,
+                });
             }
         };
 
@@ -699,7 +900,7 @@ impl Agent {
 
         let mut messages = paused_ctx.messages;
         messages.push(user_response_msg.clone());
-        self.memory.add(user_response_msg);
+        self.memory.add_async(user_response_msg).await?;
 
         let mut iterations = paused_ctx.iterations;
 
@@ -740,7 +941,7 @@ impl Agent {
             }
 
             messages.push(response.message.clone());
-            self.memory.add(response.message.clone());
+            self.memory.add_async(response.message.clone()).await?;
 
             match response.finish_reason {
                 FinishReason::Stop => {
@@ -782,7 +983,7 @@ impl Agent {
                             };
 
                             messages.push(tool_msg.clone());
-                            self.memory.add(tool_msg);
+                            self.memory.add_async(tool_msg).await?;
 
                             if let Some(ref tx) = event_tx {
                                 let _ = tx

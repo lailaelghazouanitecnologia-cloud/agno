@@ -2,7 +2,9 @@ use kkr_core::{Id, Output, Status, Task};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{Mutex, RwLock, Semaphore};
 use tracing::{debug, info, warn};
 
@@ -428,3 +430,135 @@ impl std::fmt::Display for ExecutorError {
 }
 
 impl std::error::Error for ExecutorError {}
+
+/// Circuit breaker for protecting against cascading failures.
+/// States: Closed (normal) -> Open (failing) -> HalfOpen (testing recovery)
+#[derive(Debug)]
+pub struct CircuitBreaker {
+    state: AtomicU8, // 0=Closed, 1=Open, 2=HalfOpen
+    failure_count: AtomicU64,
+    success_count: AtomicU64,
+    failure_threshold: u64,
+    success_threshold: u64,
+    last_failure: Arc<RwLock<Option<std::time::Instant>>>,
+    reset_timeout: Duration,
+}
+
+const CB_CLOSED: u8 = 0;
+const CB_OPEN: u8 = 1;
+const CB_HALF_OPEN: u8 = 2;
+
+impl CircuitBreaker {
+    pub fn new(failure_threshold: u64, success_threshold: u64, reset_timeout: Duration) -> Self {
+        Self {
+            state: AtomicU8::new(CB_CLOSED),
+            failure_count: AtomicU64::new(0),
+            success_count: AtomicU64::new(0),
+            failure_threshold,
+            success_threshold,
+            last_failure: Arc::new(RwLock::new(None)),
+            reset_timeout,
+        }
+    }
+
+    pub fn state(&self) -> &str {
+        match self.state.load(Ordering::Relaxed) {
+            CB_CLOSED => "closed",
+            CB_OPEN => "open",
+            CB_HALF_OPEN => "half_open",
+            _ => "unknown",
+        }
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.state.load(Ordering::Relaxed) == CB_OPEN
+    }
+
+    pub fn failure_count(&self) -> u64 {
+        self.failure_count.load(Ordering::Relaxed)
+    }
+
+    pub fn success_count(&self) -> u64 {
+        self.success_count.load(Ordering::Relaxed)
+    }
+
+    /// Check if a request should be allowed through.
+    pub async fn allow_request(&self) -> bool {
+        let state = self.state.load(Ordering::Relaxed);
+        match state {
+            CB_CLOSED => true,
+            CB_OPEN => {
+                // Check if reset timeout has elapsed
+                let last = self.last_failure.read().await;
+                if let Some(last_fail) = *last {
+                    if last_fail.elapsed() >= self.reset_timeout {
+                        drop(last);
+                        self.state.store(CB_HALF_OPEN, Ordering::Relaxed);
+                        self.success_count.store(0, Ordering::Relaxed);
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
+            CB_HALF_OPEN => true, // Allow test requests
+            _ => false,
+        }
+    }
+
+    /// Record a successful operation.
+    pub fn record_success(&self) {
+        let state = self.state.load(Ordering::Relaxed);
+        match state {
+            CB_HALF_OPEN => {
+                let count = self.success_count.fetch_add(1, Ordering::Relaxed) + 1;
+                if count >= self.success_threshold {
+                    self.state.store(CB_CLOSED, Ordering::Relaxed);
+                    self.failure_count.store(0, Ordering::Relaxed);
+                    self.success_count.store(0, Ordering::Relaxed);
+                }
+            }
+            CB_CLOSED => {
+                // Reset failure count on success
+                self.failure_count.store(0, Ordering::Relaxed);
+            }
+            _ => {}
+        }
+    }
+
+    /// Record a failed operation.
+    pub async fn record_failure(&self) {
+        let count = self.failure_count.fetch_add(1, Ordering::Relaxed) + 1;
+        let state = self.state.load(Ordering::Relaxed);
+
+        match state {
+            CB_CLOSED => {
+                if count >= self.failure_threshold {
+                    self.state.store(CB_OPEN, Ordering::Relaxed);
+                    let mut last = self.last_failure.write().await;
+                    *last = Some(std::time::Instant::now());
+                }
+            }
+            CB_HALF_OPEN => {
+                // Any failure in half-open goes back to open
+                self.state.store(CB_OPEN, Ordering::Relaxed);
+                self.success_count.store(0, Ordering::Relaxed);
+                let mut last = self.last_failure.write().await;
+                *last = Some(std::time::Instant::now());
+            }
+            _ => {
+                let mut last = self.last_failure.write().await;
+                *last = Some(std::time::Instant::now());
+            }
+        }
+    }
+
+    /// Reset the circuit breaker to closed state.
+    pub fn reset(&self) {
+        self.state.store(CB_CLOSED, Ordering::Relaxed);
+        self.failure_count.store(0, Ordering::Relaxed);
+        self.success_count.store(0, Ordering::Relaxed);
+    }
+}

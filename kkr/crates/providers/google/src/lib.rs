@@ -289,30 +289,30 @@ impl Provider for Google {
             .json(&request)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Provider(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::provider("google",format!("Request failed: {}", e)))?;
 
         let status = response.status();
         let body = response
             .text()
             .await
-            .map_err(|e| kkr_core::Error::Provider(format!("Failed to read response: {}", e)))?;
+            .map_err(|e| kkr_core::Error::provider("google",format!("Failed to read response: {}", e)))?;
 
         if !status.is_success() {
-            return Err(kkr_core::Error::Provider(format!(
+            return Err(kkr_core::Error::provider("google",format!(
                 "API error ({}): {}",
                 status, body
             )));
         }
 
         let api_response: ApiResponse = serde_json::from_str(&body).map_err(|e| {
-            kkr_core::Error::Provider(format!("Failed to parse response: {} - {}", e, body))
+            kkr_core::Error::provider("google",format!("Failed to parse response: {} - {}", e, body))
         })?;
 
         let candidate = api_response
             .candidates
             .into_iter()
             .next()
-            .ok_or_else(|| kkr_core::Error::Provider("No candidates in response".into()))?;
+            .ok_or_else(|| kkr_core::Error::provider("google", "No candidates in response"))?;
 
         let mut content = String::new();
         let mut tool_calls = Vec::new();

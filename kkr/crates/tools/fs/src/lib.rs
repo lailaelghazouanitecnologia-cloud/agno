@@ -10,16 +10,58 @@ use kkr_core::Result;
 const DEFAULT_MAX_READ_SIZE: usize = 1024 * 1024;
 const DEFAULT_MAX_WRITE_SIZE: usize = 10 * 1024 * 1024;
 
-fn resolve_path(path: &str, ctx: &ToolContext) -> PathBuf {
-    debug_assert!(!path.is_empty(), "path must not be empty");
-    let path = PathBuf::from(path);
-    if path.is_absolute() {
-        path
-    } else if let Some(ref root) = ctx.workspace_root {
-        root.as_std_path().join(path)
-    } else {
-        path
+fn resolve_path(path: &str, ctx: &ToolContext) -> std::result::Result<PathBuf, kkr_core::Error> {
+    if path.is_empty() {
+        return Err(kkr_core::Error::Validation {
+            field: "path".into(),
+            message: "path must not be empty".into(),
+        });
     }
+
+    let path_buf = PathBuf::from(path);
+
+    let resolved = if path_buf.is_absolute() {
+        path_buf
+    } else if let Some(ref root) = ctx.workspace_root {
+        root.as_std_path().join(&path_buf)
+    } else {
+        path_buf
+    };
+
+    // Canonicalize to resolve .. and symlinks
+    // For new files that don't exist yet, canonicalize the parent
+    let canonical = if resolved.exists() {
+        resolved
+            .canonicalize()
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to resolve path: {}", e)))?
+    } else {
+        let parent = resolved.parent().ok_or_else(|| {
+            kkr_core::Error::tool("Invalid path: no parent directory")
+        })?;
+        if parent.exists() {
+            let canonical_parent = parent
+                .canonicalize()
+                .map_err(|e| kkr_core::Error::tool(format!("Failed to resolve parent: {}", e)))?;
+            canonical_parent.join(resolved.file_name().unwrap_or_default())
+        } else {
+            resolved
+        }
+    };
+
+    // If workspace root is set, ensure the path is within it
+    if let Some(ref root) = ctx.workspace_root {
+        let canonical_root = root
+            .as_std_path()
+            .canonicalize()
+            .unwrap_or_else(|_| root.as_std_path().to_path_buf());
+        if !canonical.starts_with(&canonical_root) {
+            return Err(kkr_core::Error::PathTraversal {
+                path: path.to_string(),
+            });
+        }
+    }
+
+    Ok(canonical)
 }
 
 pub struct ReadFileTool {
@@ -87,16 +129,16 @@ impl Tool for ReadFileTool {
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: ReadParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
-        let path = resolve_path(&params.path, ctx);
+        let path = resolve_path(&params.path, ctx)?;
 
         let metadata = fs::metadata(&path)
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("File not found: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("File not found: {}", e)))?;
 
         if metadata.len() as usize > self.max_size {
-            return Err(kkr_core::Error::Tool(format!(
+            return Err(kkr_core::Error::tool(format!(
                 "File too large: {} bytes (max {})",
                 metadata.len(),
                 self.max_size
@@ -105,7 +147,7 @@ impl Tool for ReadFileTool {
 
         let content = fs::read_to_string(&path)
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to read: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to read: {}", e)))?;
 
         let content = match params.lines {
             Some(n) => content.lines().take(n).collect::<Vec<_>>().join("\n"),
@@ -186,23 +228,23 @@ impl Tool for WriteFileTool {
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: WriteParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         if params.content.len() > self.max_size {
-            return Err(kkr_core::Error::Tool(format!(
+            return Err(kkr_core::Error::tool(format!(
                 "Content too large: {} bytes (max {})",
                 params.content.len(),
                 self.max_size
             )));
         }
 
-        let path = resolve_path(&params.path, ctx);
+        let path = resolve_path(&params.path, ctx)?;
 
         if params.create_dirs {
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent)
                     .await
-                    .map_err(|e| kkr_core::Error::Tool(format!("Failed to create dirs: {}", e)))?;
+                    .map_err(|e| kkr_core::Error::tool(format!("Failed to create dirs: {}", e)))?;
             }
         }
 
@@ -213,14 +255,14 @@ impl Tool for WriteFileTool {
                 .append(true)
                 .open(&path)
                 .await
-                .map_err(|e| kkr_core::Error::Tool(format!("Failed to open: {}", e)))?;
+                .map_err(|e| kkr_core::Error::tool(format!("Failed to open: {}", e)))?;
             file.write_all(params.content.as_bytes())
                 .await
-                .map_err(|e| kkr_core::Error::Tool(format!("Failed to write: {}", e)))?;
+                .map_err(|e| kkr_core::Error::tool(format!("Failed to write: {}", e)))?;
         } else {
             fs::write(&path, &params.content)
                 .await
-                .map_err(|e| kkr_core::Error::Tool(format!("Failed to write: {}", e)))?;
+                .map_err(|e| kkr_core::Error::tool(format!("Failed to write: {}", e)))?;
         }
 
         Ok(json!({
@@ -299,18 +341,18 @@ impl Tool for ListDirTool {
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: ListParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
-        let path = resolve_path(&params.path, ctx);
+        let path = resolve_path(&params.path, ctx)?;
         let mut entries = Vec::new();
         let mut read_dir = fs::read_dir(&path)
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to read dir: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to read dir: {}", e)))?;
 
         while let Some(entry) = read_dir
             .next_entry()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to read entry: {}", e)))?
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to read entry: {}", e)))?
         {
             if entries.len() >= self.max_entries {
                 break;
@@ -345,7 +387,7 @@ impl Tool for ListDirTool {
         });
 
         serde_json::to_value(entries)
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to serialize: {}", e)))
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to serialize: {}", e)))
     }
 }
 
@@ -401,13 +443,13 @@ impl Tool for DeleteTool {
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: DeleteParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
-        let path = resolve_path(&params.path, ctx);
+        let path = resolve_path(&params.path, ctx)?;
 
         let metadata = fs::metadata(&path)
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Path not found: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Path not found: {}", e)))?;
 
         if metadata.is_dir() {
             if params.recursive {
@@ -415,11 +457,11 @@ impl Tool for DeleteTool {
             } else {
                 fs::remove_dir(&path).await
             }
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to delete dir: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to delete dir: {}", e)))?;
         } else {
             fs::remove_file(&path)
                 .await
-                .map_err(|e| kkr_core::Error::Tool(format!("Failed to delete file: {}", e)))?;
+                .map_err(|e| kkr_core::Error::tool(format!("Failed to delete file: {}", e)))?;
         }
 
         Ok(json!({"path": path.to_string_lossy(), "deleted": true}))
@@ -480,20 +522,20 @@ impl Tool for CopyTool {
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: CopyParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
-        let source = resolve_path(&params.source, ctx);
-        let dest = resolve_path(&params.dest, ctx);
+        let source = resolve_path(&params.source, ctx)?;
+        let dest = resolve_path(&params.dest, ctx)?;
 
         if !params.overwrite && dest.exists() {
-            return Err(kkr_core::Error::Tool(
+            return Err(kkr_core::Error::tool(
                 "Destination exists, use overwrite=true".to_string(),
             ));
         }
 
         fs::copy(&source, &dest)
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to copy: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to copy: {}", e)))?;
 
         Ok(json!({
             "source": source.to_string_lossy(),
@@ -554,14 +596,14 @@ impl Tool for MoveTool {
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: MoveParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
-        let source = resolve_path(&params.source, ctx);
-        let dest = resolve_path(&params.dest, ctx);
+        let source = resolve_path(&params.source, ctx)?;
+        let dest = resolve_path(&params.dest, ctx)?;
 
         fs::rename(&source, &dest)
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to move: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to move: {}", e)))?;
 
         Ok(json!({
             "source": source.to_string_lossy(),
@@ -626,16 +668,16 @@ impl Tool for MkdirTool {
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: MkdirParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
-        let path = resolve_path(&params.path, ctx);
+        let path = resolve_path(&params.path, ctx)?;
 
         if params.recursive {
             fs::create_dir_all(&path).await
         } else {
             fs::create_dir(&path).await
         }
-        .map_err(|e| kkr_core::Error::Tool(format!("Failed to create dir: {}", e)))?;
+        .map_err(|e| kkr_core::Error::tool(format!("Failed to create dir: {}", e)))?;
 
         Ok(json!({"path": path.to_string_lossy(), "created": true}))
     }
@@ -686,9 +728,9 @@ impl Tool for ExistsTool {
         let path_str = params
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| kkr_core::Error::Tool("Missing path".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("Missing path".to_string()))?;
 
-        let path = resolve_path(path_str, ctx);
+        let path = resolve_path(path_str, ctx)?;
         let exists = path.exists();
         let is_file = path.is_file();
         let is_dir = path.is_dir();
@@ -748,13 +790,13 @@ impl Tool for FileInfoTool {
         let path_str = params
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| kkr_core::Error::Tool("Missing path".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("Missing path".to_string()))?;
 
-        let path = resolve_path(path_str, ctx);
+        let path = resolve_path(path_str, ctx)?;
 
         let metadata = fs::metadata(&path)
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to get metadata: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to get metadata: {}", e)))?;
 
         let modified = metadata
             .modified()

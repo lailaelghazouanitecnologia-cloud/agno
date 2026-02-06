@@ -74,10 +74,10 @@ impl Tool for GitStatusTool {
             .stderr(Stdio::piped())
             .output()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to run git: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to run git: {}", e)))?;
 
         if !output.status.success() {
-            return Err(kkr_core::Error::Tool(format!(
+            return Err(kkr_core::Error::tool(format!(
                 "Git error: {}",
                 String::from_utf8_lossy(&output.stderr)
             )));
@@ -183,7 +183,7 @@ impl Tool for GitDiffTool {
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: DiffParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let repo_path = self.resolve_path(params.path.as_deref(), ctx);
 
@@ -205,7 +205,7 @@ impl Tool for GitDiffTool {
             .stderr(Stdio::piped())
             .output()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to run git: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to run git: {}", e)))?;
 
         Ok(json!({
             "diff": String::from_utf8_lossy(&output.stdout),
@@ -293,7 +293,7 @@ impl Tool for GitLogTool {
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: LogParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let repo_path = self.resolve_path(params.path.as_deref(), ctx);
         let count = params.count.unwrap_or(10).min(self.max_entries);
@@ -315,10 +315,10 @@ impl Tool for GitLogTool {
             .stderr(Stdio::piped())
             .output()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to run git: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to run git: {}", e)))?;
 
         if !output.status.success() {
-            return Err(kkr_core::Error::Tool(format!(
+            return Err(kkr_core::Error::tool(format!(
                 "Git error: {}",
                 String::from_utf8_lossy(&output.stderr)
             )));
@@ -411,7 +411,7 @@ impl Tool for GitAddTool {
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: AddParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let repo_path = self.resolve_path(params.path.as_deref(), ctx);
 
@@ -427,7 +427,7 @@ impl Tool for GitAddTool {
             .stderr(Stdio::piped())
             .output()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to run git: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to run git: {}", e)))?;
 
         Ok(json!({
             "success": output.status.success(),
@@ -503,7 +503,7 @@ impl Tool for GitCommitTool {
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: CommitParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let repo_path = self.resolve_path(params.path.as_deref(), ctx);
 
@@ -514,7 +514,7 @@ impl Tool for GitCommitTool {
             .stderr(Stdio::piped())
             .output()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to run git: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to run git: {}", e)))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -600,10 +600,10 @@ impl Tool for GitBranchTool {
             .stderr(Stdio::piped())
             .output()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to run git: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to run git: {}", e)))?;
 
         if !output.status.success() {
-            return Err(kkr_core::Error::Tool(format!(
+            return Err(kkr_core::Error::tool(format!(
                 "Git error: {}",
                 String::from_utf8_lossy(&output.stderr)
             )));

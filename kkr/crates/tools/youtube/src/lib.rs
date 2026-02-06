@@ -113,10 +113,10 @@ impl Tool for YouTubeMetadataTool {
         let url_or_id = params
             .get("url")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| kkr_core::Error::Tool("Missing url parameter".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("Missing url parameter".to_string()))?;
 
         let video_id = extract_video_id(url_or_id)
-            .ok_or_else(|| kkr_core::Error::Tool("Invalid YouTube URL or video ID".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("Invalid YouTube URL or video ID".to_string()))?;
 
         let video_url = format!("https://www.youtube.com/watch?v={}", video_id);
 
@@ -126,11 +126,11 @@ impl Tool for YouTubeMetadataTool {
             .query(&[("url", &video_url), ("format", &"json".to_string())])
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
-            return Err(kkr_core::Error::Tool(format!(
+            return Err(kkr_core::Error::tool(format!(
                 "YouTube oEmbed API error: {}",
                 status
             )));
@@ -139,7 +139,7 @@ impl Tool for YouTubeMetadataTool {
         let data: OEmbedResponse = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
 
         Ok(json!({
             "video_id": video_id,
@@ -195,28 +195,28 @@ impl YouTubeTranscriptTool {
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to fetch video page: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to fetch video page: {}", e)))?;
 
         let html = response
             .text()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to read response: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to read response: {}", e)))?;
 
         let caption_re = Regex::new(r#""captions":\s*(\{[^}]+\})"#)
-            .map_err(|e| kkr_core::Error::Tool(format!("Regex error: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Regex error: {}", e)))?;
 
         let timedtext_re = Regex::new(r#"https://www\.youtube\.com/api/timedtext[^"]*"#)
-            .map_err(|e| kkr_core::Error::Tool(format!("Regex error: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Regex error: {}", e)))?;
 
         let caption_url = if let Some(caps) = timedtext_re.find(&html) {
             let url = caps.as_str().replace("\\u0026", "&");
             url
         } else if caption_re.is_match(&html) {
-            return Err(kkr_core::Error::Tool(
+            return Err(kkr_core::Error::tool(
                 "Captions exist but could not extract URL".to_string(),
             ));
         } else {
-            return Err(kkr_core::Error::Tool(
+            return Err(kkr_core::Error::tool(
                 "No captions available for this video".to_string(),
             ));
         };
@@ -229,10 +229,10 @@ impl YouTubeTranscriptTool {
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to fetch captions: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to fetch captions: {}", e)))?;
 
         if !caption_response.status().is_success() {
-            return Err(kkr_core::Error::Tool(
+            return Err(kkr_core::Error::tool(
                 "Failed to fetch captions from YouTube".to_string(),
             ));
         }
@@ -240,12 +240,12 @@ impl YouTubeTranscriptTool {
         let caption_data: Value = caption_response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse captions: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse captions: {}", e)))?;
 
         let events = caption_data
             .get("events")
             .and_then(|e| e.as_array())
-            .ok_or_else(|| kkr_core::Error::Tool("Invalid caption format".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("Invalid caption format".to_string()))?;
 
         let mut segments = Vec::new();
 
@@ -330,10 +330,10 @@ impl Tool for YouTubeTranscriptTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: TranscriptParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let video_id = extract_video_id(&params.url)
-            .ok_or_else(|| kkr_core::Error::Tool("Invalid YouTube URL or video ID".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("Invalid YouTube URL or video ID".to_string()))?;
 
         let segments = self.fetch_transcript(&video_id).await?;
 

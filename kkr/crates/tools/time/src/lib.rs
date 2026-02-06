@@ -147,11 +147,11 @@ impl Tool for ParseDateTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: ParseParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let dt: DateTime<Utc> = if let Some(ref fmt) = params.format {
             let naive = NaiveDateTime::parse_from_str(&params.input, fmt)
-                .map_err(|e| kkr_core::Error::Tool(format!("Parse error: {}", e)))?;
+                .map_err(|e| kkr_core::Error::tool(format!("Parse error: {}", e)))?;
             Utc.from_utc_datetime(&naive)
         } else {
             DateTime::parse_from_rfc3339(&params.input)
@@ -167,7 +167,7 @@ impl Tool for ParseDateTool {
                     NaiveDate::parse_from_str(&params.input, "%Y-%m-%d")
                         .map(|date| Utc.from_utc_datetime(&date.and_hms_opt(0, 0, 0).unwrap()))
                 })
-                .map_err(|e| kkr_core::Error::Tool(format!("Parse error: {}", e)))?
+                .map_err(|e| kkr_core::Error::tool(format!("Parse error: {}", e)))?
         };
 
         Ok(json!({
@@ -253,19 +253,19 @@ impl Tool for FormatDateTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: FormatParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let formatted = if params.utc {
             let dt = Utc
                 .timestamp_opt(params.timestamp, 0)
                 .single()
-                .ok_or_else(|| kkr_core::Error::Tool("Invalid timestamp".to_string()))?;
+                .ok_or_else(|| kkr_core::Error::tool("Invalid timestamp".to_string()))?;
             dt.format(&params.format).to_string()
         } else {
             let dt = Local
                 .timestamp_opt(params.timestamp, 0)
                 .single()
-                .ok_or_else(|| kkr_core::Error::Tool("Invalid timestamp".to_string()))?;
+                .ok_or_else(|| kkr_core::Error::tool("Invalid timestamp".to_string()))?;
             dt.format(&params.format).to_string()
         };
 
@@ -332,7 +332,7 @@ impl Tool for DateDiffTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: DiffParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let diff_secs = params.to - params.from;
         let duration = Duration::seconds(diff_secs);
@@ -432,7 +432,7 @@ impl Tool for DateAddTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: AddParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let total_secs =
             params.days * 86400 + params.hours * 3600 + params.minutes * 60 + params.seconds;
@@ -442,7 +442,7 @@ impl Tool for DateAddTool {
         let dt = Utc
             .timestamp_opt(new_timestamp, 0)
             .single()
-            .ok_or_else(|| kkr_core::Error::Tool("Invalid result timestamp".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("Invalid result timestamp".to_string()))?;
 
         Ok(json!({
             "timestamp": new_timestamp,

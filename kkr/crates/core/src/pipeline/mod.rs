@@ -215,7 +215,7 @@ impl Pipeline {
 
         let step = match self.steps.get(name) {
             Some(s) => s,
-            None => return Err(crate::Error::Pipeline(format!("Step not found: {}", name))),
+            None => return Err(crate::Error::Pipeline { message: format!("Step not found: {}", name) }),
         };
 
         if !step.should_run(ctx) {
@@ -382,7 +382,7 @@ fn execute_node_standalone<'a>(
                 let step = match steps.get(name) {
                     Some(s) => s,
                     None => {
-                        return Err(crate::Error::Pipeline(format!("Step not found: {}", name)))
+                        return Err(crate::Error::Pipeline { message: format!("Step not found: {}", name) })
                     }
                 };
 

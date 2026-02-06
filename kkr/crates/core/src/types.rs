@@ -34,6 +34,7 @@ pub enum Status {
     Completed,
     Failed,
     Cancelled,
+    Paused,
 }
 
 impl Status {
@@ -47,6 +48,10 @@ impl Status {
 
     pub fn is_failure(&self) -> bool {
         matches!(self, Status::Failed)
+    }
+
+    pub fn is_paused(&self) -> bool {
+        matches!(self, Status::Paused)
     }
 }
 
@@ -239,6 +244,20 @@ impl Output {
             error: Some(error),
             metadata: serde_json::Value::Null,
         }
+    }
+
+    pub fn paused(task_id: Id, reason: String) -> Self {
+        Self {
+            task_id,
+            status: Status::Paused,
+            result: Some(reason),
+            error: None,
+            metadata: serde_json::Value::Null,
+        }
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.status == Status::Paused
     }
 
     pub fn is_success(&self) -> bool {

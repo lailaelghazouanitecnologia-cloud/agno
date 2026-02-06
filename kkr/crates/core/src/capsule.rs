@@ -107,12 +107,32 @@ impl Capsule {
         self.tools.execute(name, params, &ctx).await
     }
 
+    /// Add a message to the capsule's memory (synchronous).
+    ///
+    /// WARNING: This method uses `futures::executor::block_on` internally via
+    /// `Memory::add()` and will panic if called from within an async runtime.
+    /// Use `add_to_memory_async()` instead when calling from async code.
     pub fn add_to_memory(&mut self, message: Message) {
         self.memory.add(message);
     }
 
+    /// Add a message to the capsule's memory (async-safe).
+    pub async fn add_to_memory_async(&mut self, message: Message) -> Result<()> {
+        self.memory.add_async(message).await
+    }
+
+    /// Retrieve the capsule's message history (synchronous).
+    ///
+    /// WARNING: This method uses `futures::executor::block_on` internally via
+    /// `Memory::messages()` and will panic if called from within an async runtime.
+    /// Use `history_async()` instead when calling from async code.
     pub fn history(&self) -> Vec<Message> {
         self.memory.messages()
+    }
+
+    /// Retrieve the capsule's message history (async-safe).
+    pub async fn history_async(&self) -> Result<Vec<Message>> {
+        self.memory.messages_async().await
     }
 
     pub fn add_knowledge(&mut self, doc: crate::knowledge::Document) {
@@ -131,7 +151,7 @@ impl Capsule {
             .pipelines
             .iter()
             .find(|p| p.name == name)
-            .ok_or_else(|| crate::Error::Capsule(format!("Pipeline not found: {}", name)))?;
+            .ok_or_else(|| crate::Error::Capsule { message: format!("Pipeline not found: {}", name) })?;
 
         pipeline.execute(ctx).await
     }

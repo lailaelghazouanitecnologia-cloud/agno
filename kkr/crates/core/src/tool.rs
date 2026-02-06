@@ -69,10 +69,16 @@ pub struct ToolMetadata {
     pub requires: Vec<String>,
     #[serde(default)]
     pub aliases: Vec<String>,
+    #[serde(default = "default_timeout")]
+    pub timeout_ms: u64,
 }
 
 fn default_priority() -> u8 {
     DEFAULT_PRIORITY
+}
+
+fn default_timeout() -> u64 {
+    30_000
 }
 
 impl ToolMetadata {
@@ -85,6 +91,7 @@ impl ToolMetadata {
             read_only: false,
             requires: Vec::new(),
             aliases: Vec::new(),
+            timeout_ms: default_timeout(),
         }
     }
 
@@ -121,6 +128,11 @@ impl ToolMetadata {
 
     pub fn with_alias(mut self, alias: impl Into<String>) -> Self {
         self.aliases.push(alias.into());
+        self
+    }
+
+    pub fn with_timeout(mut self, timeout_ms: u64) -> Self {
+        self.timeout_ms = timeout_ms;
         self
     }
 
@@ -336,9 +348,24 @@ impl ToolRegistry {
         let tool = self
             .tools
             .get(name)
-            .ok_or_else(|| crate::Error::Tool(format!("Tool not found: {}", name)))?;
+            .ok_or_else(|| crate::Error::ToolNotFound(name.to_string()))?;
 
         tool.execute(params, ctx).await
+    }
+
+    pub async fn execute_with_timeout(&self, name: &str, params: Value, ctx: &ToolContext) -> Result<Value> {
+        let tool = self.tools.get(name)
+            .ok_or_else(|| crate::Error::ToolNotFound(name.to_string()))?;
+
+        let timeout = std::time::Duration::from_millis(tool.metadata().timeout_ms);
+
+        match tokio::time::timeout(timeout, tool.execute(params, ctx)).await {
+            Ok(result) => result,
+            Err(_) => Err(crate::Error::tool_named(
+                name,
+                format!("timed out after {}ms", tool.metadata().timeout_ms),
+            )),
+        }
     }
 
     pub fn len(&self) -> usize {

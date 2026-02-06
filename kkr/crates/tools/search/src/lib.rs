@@ -127,11 +127,11 @@ impl Tool for ExaSearchTool {
             .api_key
             .as_ref()
             .or(env_key.as_ref())
-            .ok_or_else(|| kkr_core::Error::Tool("EXA_API_KEY not set".to_string()))?
+            .ok_or_else(|| kkr_core::Error::tool("EXA_API_KEY not set".to_string()))?
             .clone();
 
         let params: ExaSearchParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let num_results = params.num_results.unwrap_or(self.max_results);
 
@@ -161,12 +161,12 @@ impl Tool for ExaSearchTool {
             .json(&body)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(kkr_core::Error::Tool(format!(
+            return Err(kkr_core::Error::tool(format!(
                 "Exa API error {}: {}",
                 status, text
             )));
@@ -175,7 +175,7 @@ impl Tool for ExaSearchTool {
         let result: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
 
         Ok(result)
     }
@@ -280,11 +280,11 @@ impl Tool for TavilySearchTool {
             .api_key
             .as_ref()
             .or(env_key.as_ref())
-            .ok_or_else(|| kkr_core::Error::Tool("TAVILY_API_KEY not set".to_string()))?
+            .ok_or_else(|| kkr_core::Error::tool("TAVILY_API_KEY not set".to_string()))?
             .clone();
 
         let params: TavilySearchParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let body = json!({
             "api_key": api_key,
@@ -302,12 +302,12 @@ impl Tool for TavilySearchTool {
             .json(&body)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(kkr_core::Error::Tool(format!(
+            return Err(kkr_core::Error::tool(format!(
                 "Tavily API error {}: {}",
                 status, text
             )));
@@ -316,7 +316,7 @@ impl Tool for TavilySearchTool {
         let result: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
 
         Ok(result)
     }
@@ -413,11 +413,11 @@ impl Tool for SerperSearchTool {
             .api_key
             .as_ref()
             .or(env_key.as_ref())
-            .ok_or_else(|| kkr_core::Error::Tool("SERPER_API_KEY not set".to_string()))?
+            .ok_or_else(|| kkr_core::Error::tool("SERPER_API_KEY not set".to_string()))?
             .clone();
 
         let params: SerperSearchParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let search_type = params.search_type.unwrap_or_else(|| "search".to_string());
         let endpoint = match search_type.as_str() {
@@ -444,12 +444,12 @@ impl Tool for SerperSearchTool {
             .json(&body)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(kkr_core::Error::Tool(format!(
+            return Err(kkr_core::Error::tool(format!(
                 "Serper API error {}: {}",
                 status, text
             )));
@@ -458,7 +458,7 @@ impl Tool for SerperSearchTool {
         let result: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
 
         Ok(result)
     }
@@ -560,7 +560,7 @@ impl Tool for DuckDuckGoSearchTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: DuckDuckGoParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let encoded_query = urlencoding::encode(&params.query);
         let url = format!(
@@ -574,12 +574,12 @@ impl Tool for DuckDuckGoSearchTool {
             .header("User-Agent", "KKR-Agent/1.0")
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
 
         let result: DDGResult = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
 
         let max_results = params.max_results.unwrap_or(self.max_results);
 
@@ -673,7 +673,7 @@ impl Tool for WebContentTool {
         let url = params
             .get("url")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| kkr_core::Error::Tool("Missing url".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("Missing url".to_string()))?;
 
         let response = self
             .client
@@ -681,7 +681,7 @@ impl Tool for WebContentTool {
             .header("User-Agent", "KKR-Agent/1.0")
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
 
         let status = response.status().as_u16();
         let content_type = response
@@ -694,7 +694,7 @@ impl Tool for WebContentTool {
         let mut content = response
             .text()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to read content: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to read content: {}", e)))?;
 
         if content.len() > self.max_content_size {
             content.truncate(self.max_content_size);
@@ -844,11 +844,11 @@ impl Tool for BraveSearchTool {
             .api_key
             .as_ref()
             .or(env_key.as_ref())
-            .ok_or_else(|| kkr_core::Error::Tool("BRAVE_API_KEY not set".to_string()))?
+            .ok_or_else(|| kkr_core::Error::tool("BRAVE_API_KEY not set".to_string()))?
             .clone();
 
         let params: BraveSearchParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let max_results = params.max_results.unwrap_or(self.max_results);
         let country = params.country.unwrap_or_else(|| "US".to_string());
@@ -874,12 +874,12 @@ impl Tool for BraveSearchTool {
             .query(&query_params)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(kkr_core::Error::Tool(format!(
+            return Err(kkr_core::Error::tool(format!(
                 "Brave API error {}: {}",
                 status, text
             )));
@@ -888,7 +888,7 @@ impl Tool for BraveSearchTool {
         let result: BraveSearchResponse = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
 
         let web_results: Vec<Value> = result
             .web

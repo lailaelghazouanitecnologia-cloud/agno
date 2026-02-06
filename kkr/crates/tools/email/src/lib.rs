@@ -161,7 +161,7 @@ impl Tool for SmtpEmailTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: SendEmailParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let from = if let Some(ref name) = self.config.from_name {
             format!("{} <{}>", name, self.config.from_email)
@@ -176,31 +176,31 @@ impl Tool for SmtpEmailTool {
         };
 
         let mut email_builder = Message::builder()
-            .from(from.parse().map_err(|e| kkr_core::Error::Tool(format!("Invalid from address: {}", e)))?)
-            .to(params.to.parse().map_err(|e| kkr_core::Error::Tool(format!("Invalid to address: {}", e)))?)
+            .from(from.parse().map_err(|e| kkr_core::Error::tool(format!("Invalid from address: {}", e)))?)
+            .to(params.to.parse().map_err(|e| kkr_core::Error::tool(format!("Invalid to address: {}", e)))?)
             .subject(&params.subject);
 
         if let Some(cc_list) = params.cc {
             for cc in cc_list {
-                email_builder = email_builder.cc(cc.parse().map_err(|e| kkr_core::Error::Tool(format!("Invalid CC address: {}", e)))?);
+                email_builder = email_builder.cc(cc.parse().map_err(|e| kkr_core::Error::tool(format!("Invalid CC address: {}", e)))?);
             }
         }
 
         if let Some(bcc_list) = params.bcc {
             for bcc in bcc_list {
-                email_builder = email_builder.bcc(bcc.parse().map_err(|e| kkr_core::Error::Tool(format!("Invalid BCC address: {}", e)))?);
+                email_builder = email_builder.bcc(bcc.parse().map_err(|e| kkr_core::Error::tool(format!("Invalid BCC address: {}", e)))?);
             }
         }
 
         let email = email_builder
             .header(content_type)
             .body(params.body)
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to build email: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to build email: {}", e)))?;
 
         let creds = Credentials::new(self.config.username.clone(), self.config.password.clone());
 
         let mailer: AsyncSmtpTransport<Tokio1Executor> = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&self.config.host)
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to create SMTP transport: {}", e)))?
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to create SMTP transport: {}", e)))?
             .credentials(creds)
             .port(self.config.port)
             .build();
@@ -208,7 +208,7 @@ impl Tool for SmtpEmailTool {
         mailer
             .send(email)
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to send email: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to send email: {}", e)))?;
 
         Ok(json!({
             "success": true,
@@ -344,13 +344,13 @@ impl Tool for ResendEmailTool {
             .api_key
             .as_ref()
             .or(env_key.as_ref())
-            .ok_or_else(|| kkr_core::Error::Tool("RESEND_API_KEY not set".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("RESEND_API_KEY not set".to_string()))?;
 
         let params: ResendEmailParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         if params.html.is_none() && params.text.is_none() {
-            return Err(kkr_core::Error::Tool("Either html or text must be provided".to_string()));
+            return Err(kkr_core::Error::tool("Either html or text must be provided".to_string()));
         }
 
         let request = ResendRequest {
@@ -372,16 +372,16 @@ impl Tool for ResendEmailTool {
             .json(&request)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
 
         let status = response.status();
         let body: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
 
         if !status.is_success() {
-            return Err(kkr_core::Error::Tool(format!("Resend API error: {}", body)));
+            return Err(kkr_core::Error::tool(format!("Resend API error: {}", body)));
         }
 
         Ok(json!({

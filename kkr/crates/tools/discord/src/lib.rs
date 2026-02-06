@@ -173,16 +173,16 @@ impl Tool for DiscordWebhookTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: WebhookParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let webhook_url = params
             .webhook_url
             .as_ref()
             .or(self.webhook_url.as_ref())
-            .ok_or_else(|| kkr_core::Error::Tool("No webhook URL provided".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("No webhook URL provided".to_string()))?;
 
         if params.content.is_none() && params.embeds.is_none() {
-            return Err(kkr_core::Error::Tool("Either content or embeds must be provided".to_string()));
+            return Err(kkr_core::Error::tool("Either content or embeds must be provided".to_string()));
         }
 
         let message = WebhookMessage {
@@ -199,13 +199,13 @@ impl Tool for DiscordWebhookTool {
             .json(&message)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
 
         let status = response.status();
 
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(kkr_core::Error::Tool(format!("Discord API error ({}): {}", status, body)));
+            return Err(kkr_core::Error::tool(format!("Discord API error ({}): {}", status, body)));
         }
 
         Ok(json!({
@@ -248,7 +248,7 @@ impl DiscordBotTool {
             .bot_token
             .as_ref()
             .or(env_token.as_ref())
-            .ok_or_else(|| kkr_core::Error::Tool("DISCORD_BOT_TOKEN not set".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("DISCORD_BOT_TOKEN not set".to_string()))?;
         Ok(format!("Bot {}", token))
     }
 }
@@ -302,7 +302,7 @@ impl Tool for DiscordBotTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: SendMessageParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let auth = self.get_auth_header()?;
 
@@ -324,16 +324,16 @@ impl Tool for DiscordBotTool {
             .json(&body)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
 
         let status = response.status();
         let body: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
 
         if !status.is_success() {
-            return Err(kkr_core::Error::Tool(format!("Discord API error: {}", body)));
+            return Err(kkr_core::Error::tool(format!("Discord API error: {}", body)));
         }
 
         Ok(json!({
@@ -410,14 +410,14 @@ impl Tool for DiscordGetChannelsTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: GetChannelsParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let env_token = env::var("DISCORD_BOT_TOKEN").ok();
         let token = self
             .bot_token
             .as_ref()
             .or(env_token.as_ref())
-            .ok_or_else(|| kkr_core::Error::Tool("DISCORD_BOT_TOKEN not set".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("DISCORD_BOT_TOKEN not set".to_string()))?;
 
         let url = format!("{}/guilds/{}/channels", DISCORD_API_BASE, params.guild_id);
 
@@ -427,16 +427,16 @@ impl Tool for DiscordGetChannelsTool {
             .header("Authorization", format!("Bot {}", token))
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
 
         let status = response.status();
         let body: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
 
         if !status.is_success() {
-            return Err(kkr_core::Error::Tool(format!("Discord API error: {}", body)));
+            return Err(kkr_core::Error::tool(format!("Discord API error: {}", body)));
         }
 
         let channels: Vec<Value> = body

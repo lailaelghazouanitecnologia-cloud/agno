@@ -71,7 +71,7 @@ impl Tool for CalculateTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: CalcParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let result = match params.op.as_str() {
             "+" | "add" => params.a + params.b,
@@ -79,19 +79,19 @@ impl Tool for CalculateTool {
             "*" | "mul" => params.a * params.b,
             "/" | "div" => {
                 if params.b == 0.0 {
-                    return Err(kkr_core::Error::Tool("Division by zero".to_string()));
+                    return Err(kkr_core::Error::tool("Division by zero".to_string()));
                 }
                 params.a / params.b
             }
             "%" | "mod" => {
                 if params.b == 0.0 {
-                    return Err(kkr_core::Error::Tool("Modulo by zero".to_string()));
+                    return Err(kkr_core::Error::tool("Modulo by zero".to_string()));
                 }
                 params.a % params.b
             }
             "^" | "pow" => params.a.powf(params.b),
             _ => {
-                return Err(kkr_core::Error::Tool(format!(
+                return Err(kkr_core::Error::tool(format!(
                     "Unknown operator: {}",
                     params.op
                 )))
@@ -174,7 +174,7 @@ impl Tool for RoundTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: RoundParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let multiplier = 10f64.powi(params.decimals as i32);
         let scaled = params.value * multiplier;
@@ -185,7 +185,7 @@ impl Tool for RoundTool {
             "ceil" => scaled.ceil() / multiplier,
             "trunc" => scaled.trunc() / multiplier,
             _ => {
-                return Err(kkr_core::Error::Tool(format!(
+                return Err(kkr_core::Error::tool(format!(
                     "Unknown mode: {}",
                     params.mode
                 )))
@@ -249,7 +249,7 @@ impl Tool for AbsTool {
         let value = params
             .get("value")
             .and_then(|v| v.as_f64())
-            .ok_or_else(|| kkr_core::Error::Tool("Missing value".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("Missing value".to_string()))?;
 
         Ok(json!({
             "result": value.abs(),
@@ -307,13 +307,13 @@ impl Tool for MinMaxTool {
         let values: Vec<f64> = params
             .get("values")
             .and_then(|v| v.as_array())
-            .ok_or_else(|| kkr_core::Error::Tool("Missing values".to_string()))?
+            .ok_or_else(|| kkr_core::Error::tool("Missing values".to_string()))?
             .iter()
             .filter_map(|v| v.as_f64())
             .collect();
 
         if values.is_empty() {
-            return Err(kkr_core::Error::Tool("Empty values array".to_string()));
+            return Err(kkr_core::Error::tool("Empty values array".to_string()));
         }
 
         let min = values.iter().copied().fold(f64::INFINITY, f64::min);
@@ -377,13 +377,13 @@ impl Tool for SumTool {
         let values: Vec<f64> = params
             .get("values")
             .and_then(|v| v.as_array())
-            .ok_or_else(|| kkr_core::Error::Tool("Missing values".to_string()))?
+            .ok_or_else(|| kkr_core::Error::tool("Missing values".to_string()))?
             .iter()
             .filter_map(|v| v.as_f64())
             .collect();
 
         if values.is_empty() {
-            return Err(kkr_core::Error::Tool("Empty values array".to_string()));
+            return Err(kkr_core::Error::tool("Empty values array".to_string()));
         }
 
         let sum: f64 = values.iter().sum();
@@ -470,10 +470,10 @@ impl Tool for RandomTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: RandomParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         if params.min >= params.max {
-            return Err(kkr_core::Error::Tool(
+            return Err(kkr_core::Error::tool(
                 "min must be less than max".to_string(),
             ));
         }

@@ -115,12 +115,12 @@ impl Tool for HttpTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: HttpParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         debug_assert!(!params.url.is_empty(), "url must not be empty");
 
         let method = Method::from_bytes(params.method.to_uppercase().as_bytes())
-            .map_err(|_| kkr_core::Error::Tool(format!("Invalid method: {}", params.method)))?;
+            .map_err(|_| kkr_core::Error::tool(format!("Invalid method: {}", params.method)))?;
 
         let start = std::time::Instant::now();
 
@@ -145,7 +145,7 @@ impl Tool for HttpTool {
         let response = request
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
 
         let status = response.status().as_u16();
         let success = response.status().is_success();
@@ -160,10 +160,10 @@ impl Tool for HttpTool {
         let body_bytes = response
             .bytes()
             .await
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to read response: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to read response: {}", e)))?;
 
         if body_bytes.len() > self.max_response_size {
-            return Err(kkr_core::Error::Tool(format!(
+            return Err(kkr_core::Error::tool(format!(
                 "Response too large: {} bytes (max {})",
                 body_bytes.len(),
                 self.max_response_size
@@ -184,7 +184,7 @@ impl Tool for HttpTool {
         };
 
         serde_json::to_value(result)
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to serialize: {}", e)))
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to serialize: {}", e)))
     }
 }
 
@@ -238,7 +238,7 @@ impl Tool for HttpGetTool {
         let url = params
             .get("url")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| kkr_core::Error::Tool("Missing url".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("Missing url".to_string()))?;
 
         self.inner
             .execute(json!({"url": url, "method": "GET"}), ctx)
@@ -296,7 +296,7 @@ impl Tool for HttpPostTool {
         let url = params
             .get("url")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| kkr_core::Error::Tool("Missing url".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("Missing url".to_string()))?;
 
         let body = params.get("body").cloned();
 

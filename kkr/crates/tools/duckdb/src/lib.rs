@@ -20,7 +20,7 @@ impl DuckDBClient {
     /// Create a new in-memory DuckDB connection
     pub fn in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to open DuckDB: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to open DuckDB: {}", e)))?;
 
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -32,7 +32,7 @@ impl DuckDBClient {
     pub fn with_file(path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();
         let conn = Connection::open(&path)
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to open DuckDB file: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to open DuckDB file: {}", e)))?;
 
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -47,7 +47,7 @@ impl DuckDBClient {
 
         let mut stmt = conn
             .prepare(&sql)
-            .map_err(|e| kkr_core::Error::Tool(format!("SQL prepare error: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("SQL prepare error: {}", e)))?;
 
         let column_count = stmt.column_count();
         let column_names: Vec<String> = (0..column_count)
@@ -66,7 +66,7 @@ impl DuckDBClient {
             .map(|rows| rows.filter_map(|r| r.ok()).collect());
 
         let rows = rows_result
-            .map_err(|e| kkr_core::Error::Tool(format!("Query execution error: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Query execution error: {}", e)))?;
 
         let row_count = rows.len();
         Ok(QueryResult {
@@ -81,7 +81,7 @@ impl DuckDBClient {
         let conn = self.conn.lock().await;
 
         conn.execute(sql, [])
-            .map_err(|e| kkr_core::Error::Tool(format!("SQL execution error: {}", e)))
+            .map_err(|e| kkr_core::Error::tool(format!("SQL execution error: {}", e)))
     }
 
     /// Load data from a CSV file
@@ -446,7 +446,7 @@ impl Tool for DuckDBQueryTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: DuckDBQueryParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let sql = if let Some(limit) = params.limit {
             if params.sql.to_lowercase().contains(" limit ") {
@@ -527,7 +527,7 @@ impl Tool for DuckDBLoadTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: DuckDBLoadParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let format = params.format.unwrap_or_else(|| {
             if params.path.ends_with(".parquet") {
@@ -694,7 +694,7 @@ impl Tool for DuckDBExportTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: DuckDBExportParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let format = match params.format.to_lowercase().as_str() {
             "parquet" => ExportFormat::Parquet,
@@ -774,7 +774,7 @@ impl Tool for DuckDBExplainTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: DuckDBExplainParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let plan = if params.analyze {
             self.client.explain_analyze(&params.sql).await?
@@ -842,7 +842,7 @@ impl Tool for DuckDBSummarizeTool {
         let table_name = params
             .get("table_name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| kkr_core::Error::Tool("Missing table_name".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("Missing table_name".to_string()))?;
 
         let summary = self.client.summarize(table_name).await?;
 
@@ -928,7 +928,7 @@ impl Tool for DuckDBLoadS3Tool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: DuckDBLoadS3Params = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         self.client
             .load_s3(
@@ -1018,7 +1018,7 @@ impl Tool for DuckDBCreateFTSIndexTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: DuckDBCreateFTSParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let columns: Vec<&str> = params.columns.iter().map(|s| s.as_str()).collect();
 
@@ -1101,7 +1101,7 @@ impl Tool for DuckDBSearchTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: DuckDBSearchParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let results = self
             .client

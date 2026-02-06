@@ -139,12 +139,12 @@ impl Tool for ShellTool {
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<Value> {
         let params: ShellParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         debug_assert!(!params.command.is_empty(), "command must not be empty");
 
         if !self.is_command_allowed(&params.command) {
-            return Err(kkr_core::Error::Tool(format!(
+            return Err(kkr_core::Error::tool(format!(
                 "Command not allowed: {}",
                 params.command
             )));
@@ -186,8 +186,8 @@ impl Tool for ShellTool {
 
         let output = tokio::time::timeout(std::time::Duration::from_secs(timeout), cmd.output())
             .await
-            .map_err(|_| kkr_core::Error::Tool("Command timed out".to_string()))?
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to execute: {}", e)))?;
+            .map_err(|_| kkr_core::Error::tool("Command timed out".to_string()))?
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to execute: {}", e)))?;
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
@@ -212,7 +212,7 @@ impl Tool for ShellTool {
         };
 
         serde_json::to_value(result)
-            .map_err(|e| kkr_core::Error::Tool(format!("Failed to serialize: {}", e)))
+            .map_err(|e| kkr_core::Error::tool(format!("Failed to serialize: {}", e)))
     }
 }
 

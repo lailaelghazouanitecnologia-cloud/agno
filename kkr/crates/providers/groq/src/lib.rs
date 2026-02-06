@@ -219,30 +219,30 @@ impl Provider for Groq {
             .json(&request)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::Provider(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::Error::provider("groq",format!("Request failed: {}", e)))?;
 
         let status = response.status();
         let body = response
             .text()
             .await
-            .map_err(|e| kkr_core::Error::Provider(format!("Failed to read response: {}", e)))?;
+            .map_err(|e| kkr_core::Error::provider("groq",format!("Failed to read response: {}", e)))?;
 
         if !status.is_success() {
-            return Err(kkr_core::Error::Provider(format!(
+            return Err(kkr_core::Error::provider("groq",format!(
                 "API error ({}): {}",
                 status, body
             )));
         }
 
         let api_response: ApiResponse = serde_json::from_str(&body).map_err(|e| {
-            kkr_core::Error::Provider(format!("Failed to parse response: {} - {}", e, body))
+            kkr_core::Error::provider("groq",format!("Failed to parse response: {} - {}", e, body))
         })?;
 
         let choice = api_response
             .choices
             .into_iter()
             .next()
-            .ok_or_else(|| kkr_core::Error::Provider("No choices in response".into()))?;
+            .ok_or_else(|| kkr_core::Error::provider("groq", "No choices in response"))?;
 
         let tool_calls = choice.message.tool_calls.map(|tcs| {
             tcs.into_iter()

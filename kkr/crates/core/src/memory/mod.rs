@@ -78,15 +78,30 @@ impl Memory {
         self
     }
 
+    /// Add a message to memory (synchronous).
+    ///
+    /// WARNING: This method uses `futures::executor::block_on` internally and will
+    /// panic if called from within an async runtime (e.g., inside a tokio task).
+    /// Use `add_async()` instead when calling from async code.
     pub fn add(&mut self, message: Message) {
         let entry = self.create_entry(message);
         let _ = futures::executor::block_on(self.storage.store(entry));
     }
 
+    /// Retrieve all messages from memory (synchronous).
+    ///
+    /// WARNING: This method uses `futures::executor::block_on` internally and will
+    /// panic if called from within an async runtime (e.g., inside a tokio task).
+    /// Use `messages_async()` instead when calling from async code.
     pub fn messages(&self) -> Vec<Message> {
         futures::executor::block_on(self.messages_async()).unwrap_or_default()
     }
 
+    /// Retrieve the last N messages from memory (synchronous).
+    ///
+    /// WARNING: This method uses `futures::executor::block_on` internally and will
+    /// panic if called from within an async runtime (e.g., inside a tokio task).
+    /// Use `last_n_async()` instead when calling from async code.
     pub fn last_n(&self, n: usize) -> Vec<Message> {
         debug_assert!(n > 0, "n must be positive");
 
@@ -131,11 +146,21 @@ impl Memory {
         }
     }
 
+    /// Clear all messages and state from memory (synchronous).
+    ///
+    /// WARNING: This method uses `futures::executor::block_on` internally and will
+    /// panic if called from within an async runtime (e.g., inside a tokio task).
+    /// Use `clear_async()` instead when calling from async code.
     pub fn clear(&mut self) {
         let _ = futures::executor::block_on(self.storage.clear());
         self.state.clear();
     }
 
+    /// Get the number of stored entries (synchronous).
+    ///
+    /// WARNING: This method uses `futures::executor::block_on` internally and will
+    /// panic if called from within an async runtime (e.g., inside a tokio task).
+    /// Use `len_async()` instead when calling from async code.
     pub fn len(&self) -> usize {
         futures::executor::block_on(self.storage.count()).unwrap_or(0)
     }
@@ -144,6 +169,11 @@ impl Memory {
         self.len() == 0
     }
 
+    /// Get the total estimated token count (synchronous).
+    ///
+    /// WARNING: This method uses `futures::executor::block_on` internally and will
+    /// panic if called from within an async runtime (e.g., inside a tokio task).
+    /// Use `token_count_async()` instead when calling from async code.
     pub fn token_count(&self) -> usize {
         futures::executor::block_on(self.storage.count_tokens()).unwrap_or(0)
     }
@@ -168,6 +198,31 @@ impl Memory {
         Ok(())
     }
 
+    pub async fn last_n_async(&self, n: usize) -> Result<Vec<Message>> {
+        debug_assert!(n > 0, "n must be positive");
+
+        let entries = match &self.current_session {
+            Some(session) => self.storage.retrieve_by_session(session, Some(n)).await?,
+            None => self.storage.retrieve_all(Some(n)).await?,
+        };
+
+        Ok(entries.into_iter().map(|e| e.message).collect())
+    }
+
+    pub async fn len_async(&self) -> Result<usize> {
+        self.storage.count().await
+    }
+
+    pub async fn token_count_async(&self) -> Result<usize> {
+        self.storage.count_tokens().await
+    }
+
+    /// Check if memory needs optimization (synchronous).
+    ///
+    /// WARNING: This method uses synchronous `len()` and `token_count()` which
+    /// call `futures::executor::block_on` internally and will panic if called
+    /// from within an async runtime. Use `needs_optimization_async()` instead
+    /// when calling from async code.
     pub fn needs_optimization(&self) -> bool {
         if !self.config.enable_optimization {
             return false;
@@ -182,8 +237,22 @@ impl Memory {
         self.len() > self.config.max_messages
     }
 
+    pub async fn needs_optimization_async(&self) -> bool {
+        if !self.config.enable_optimization {
+            return false;
+        }
+
+        if let Some(max_tokens) = self.config.max_tokens {
+            if self.token_count_async().await.unwrap_or(0) > max_tokens {
+                return true;
+            }
+        }
+
+        self.len_async().await.unwrap_or(0) > self.config.max_messages
+    }
+
     pub async fn optimize(&mut self) -> Result<bool> {
-        if !self.needs_optimization() {
+        if !self.needs_optimization_async().await {
             return Ok(false);
         }
 
@@ -307,7 +376,7 @@ impl SharedMemory {
 
     pub async fn len(&self) -> usize {
         let memory = self.inner.read().await;
-        memory.len()
+        memory.len_async().await.unwrap_or(0)
     }
 
     pub async fn is_empty(&self) -> bool {

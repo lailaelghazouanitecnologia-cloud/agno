@@ -92,7 +92,7 @@ impl Tool for RegexMatchTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: MatchParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let mut pattern = params.pattern.clone();
         if params.case_insensitive {
@@ -103,7 +103,7 @@ impl Tool for RegexMatchTool {
         }
 
         let re = Regex::new(&pattern)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid regex: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid regex: {}", e)))?;
 
         let matches: Vec<_> = re
             .find_iter(&params.text)
@@ -204,7 +204,7 @@ impl Tool for RegexReplaceTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: ReplaceParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let mut pattern = params.pattern.clone();
         if params.case_insensitive {
@@ -212,7 +212,7 @@ impl Tool for RegexReplaceTool {
         }
 
         let re = Regex::new(&pattern)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid regex: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid regex: {}", e)))?;
 
         let result = if params.all {
             re.replace_all(&params.text, &params.replacement).to_string()
@@ -303,7 +303,7 @@ impl Tool for RegexExtractTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: ExtractParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let mut pattern = params.pattern.clone();
         if params.case_insensitive {
@@ -311,7 +311,7 @@ impl Tool for RegexExtractTool {
         }
 
         let re = Regex::new(&pattern)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid regex: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid regex: {}", e)))?;
 
         let captures = re.captures(&params.text);
 
@@ -416,10 +416,10 @@ impl Tool for RegexSplitTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: SplitParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
         let re = Regex::new(&params.pattern)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid regex: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid regex: {}", e)))?;
 
         let parts: Vec<_> = match params.limit {
             Some(n) => re.splitn(&params.text, n).collect(),
@@ -485,15 +485,15 @@ impl Tool for RegexTestTool {
         let pattern = params
             .get("pattern")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| kkr_core::Error::Tool("Missing pattern".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("Missing pattern".to_string()))?;
 
         let text = params
             .get("text")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| kkr_core::Error::Tool("Missing text".to_string()))?;
+            .ok_or_else(|| kkr_core::Error::tool("Missing text".to_string()))?;
 
         let re = Regex::new(pattern)
-            .map_err(|e| kkr_core::Error::Tool(format!("Invalid regex: {}", e)))?;
+            .map_err(|e| kkr_core::Error::tool(format!("Invalid regex: {}", e)))?;
 
         Ok(json!({
             "matches": re.is_match(text)

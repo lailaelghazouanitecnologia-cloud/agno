@@ -1,0 +1,15 @@
+[package]
+name = "kkr-tool-search"
+version.workspace = true
+edition.workspace = true
+description = "Local code search tools for KKR agents: glob file search and content grep"
+
+[dependencies]
+kkr-core = { workspace = true }
+common-error = { workspace = true }
+common-tools = { path = "../../../../common/crates/common-tools" }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde_json = { workspace = true }
+regex = { workspace = true }
+glob = "0.3"

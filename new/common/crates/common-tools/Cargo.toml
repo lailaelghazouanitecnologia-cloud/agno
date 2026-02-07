@@ -1,0 +1,8 @@
+[package]
+name = "common-tools"
+version.workspace = true
+edition.workspace = true
+description = "Shared utilities for tool implementations: path validation, command filtering, output truncation"
+
+[dependencies]
+common-error = { workspace = true }

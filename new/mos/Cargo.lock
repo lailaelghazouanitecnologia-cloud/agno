@@ -243,12 +243,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "common-traits"
+name = "common-tools"
 version = "0.1.0"
 dependencies = [
  "common-error",
- "serde",
 ]
+
+[[package]]
+name = "configparser"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e57e3272f0190c3f1584272d613719ba5fc7df7f4942fe542e63d949cf3a649b"
 
 [[package]]
 name = "core-foundation"
@@ -299,34 +304,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
 dependencies = [
  "cfg-if",
-]
-
-[[package]]
-name = "entity-core"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "common-error",
- "common-traits",
- "serde",
- "serde_json",
- "serde_yaml",
- "tokio",
-]
-
-[[package]]
-name = "entity-tools"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "common-error",
- "entity-core",
- "glob",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "tokio",
 ]
 
 [[package]]
@@ -927,6 +904,56 @@ dependencies = [
 ]
 
 [[package]]
+name = "kkr-tool-fs"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common-error",
+ "common-tools",
+ "kkr-core",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "kkr-tool-git"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common-error",
+ "common-tools",
+ "kkr-core",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "kkr-tool-search"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common-error",
+ "common-tools",
+ "glob",
+ "kkr-core",
+ "regex",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "kkr-tool-shell"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common-error",
+ "common-tools",
+ "kkr-core",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -992,12 +1019,15 @@ dependencies = [
 name = "mos"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "camino",
  "common-error",
- "entity-tools",
+ "configparser",
  "kkr-core",
  "kkr-provider-openai",
+ "kkr-tool-fs",
+ "kkr-tool-git",
+ "kkr-tool-search",
+ "kkr-tool-shell",
  "serde",
  "serde_json",
  "tokio",

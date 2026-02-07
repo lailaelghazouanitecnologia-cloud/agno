@@ -33,6 +33,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-tools"
+version = "0.1.0"
+dependencies = [
+ "common-error",
+]
+
+[[package]]
 name = "common-traits"
 version = "0.1.0"
 dependencies = [

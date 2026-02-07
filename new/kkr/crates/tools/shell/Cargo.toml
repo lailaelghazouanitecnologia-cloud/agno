@@ -1,0 +1,13 @@
+[package]
+name = "kkr-tool-shell"
+version.workspace = true
+edition.workspace = true
+description = "Shell execution tools for KKR agents: shell, bash, safe_shell"
+
+[dependencies]
+kkr-core = { workspace = true }
+common-error = { workspace = true }
+common-tools = { path = "../../../../common/crates/common-tools" }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde_json = { workspace = true }

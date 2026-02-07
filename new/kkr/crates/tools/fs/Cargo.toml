@@ -1,0 +1,13 @@
+[package]
+name = "kkr-tool-fs"
+version.workspace = true
+edition.workspace = true
+description = "File system tools for KKR agents: read, write, list, delete, copy, move, mkdir"
+
+[dependencies]
+kkr-core = { workspace = true }
+common-error = { workspace = true }
+common-tools = { path = "../../../../common/crates/common-tools" }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde_json = { workspace = true }

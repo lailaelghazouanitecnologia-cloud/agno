@@ -1,0 +1,13 @@
+[package]
+name = "kkr-tool-git"
+version.workspace = true
+edition.workspace = true
+description = "Git tools for KKR agents: status, diff, log, add, commit, branch"
+
+[dependencies]
+kkr-core = { workspace = true }
+common-error = { workspace = true }
+common-tools = { path = "../../../../common/crates/common-tools" }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde_json = { workspace = true }

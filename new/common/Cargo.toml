@@ -5,6 +5,7 @@ members = [
     "crates/common-config",
     "crates/common-serde",
     "crates/common-traits",
+    "crates/common-tools",
 ]
 
 [workspace.package]
@@ -21,3 +22,4 @@ common-error = { path = "crates/common-error" }
 common-config = { path = "crates/common-config" }
 common-serde = { path = "crates/common-serde" }
 common-traits = { path = "crates/common-traits" }
+common-tools = { path = "crates/common-tools" }

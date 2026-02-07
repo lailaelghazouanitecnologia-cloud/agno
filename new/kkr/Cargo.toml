@@ -42,6 +42,11 @@ members = [
     # VM + Plan
     "crates/vm",
     "crates/plan",
+    # Coding tools (native)
+    "crates/tools/fs",
+    "crates/tools/shell",
+    "crates/tools/git",
+    "crates/tools/search",
     "examples/kkr-agent-demo",
 ]
 
@@ -85,8 +90,12 @@ regex = "1.10"
 # TOML
 toml = "0.8"
 
+# File search
+glob = "0.3"
+
 # Shared
 common-error = { path = "../common/crates/common-error" }
+common-tools = { path = "../common/crates/common-tools" }
 
 # Internal crates
 kkr-core = { path = "crates/core" }
@@ -99,6 +108,10 @@ kkr-coordinator = { path = "crates/coordinator" }
 kkr-refactor = { path = "crates/refactor" }
 kkr-vm = { path = "crates/vm" }
 kkr-plan = { path = "crates/plan" }
+kkr-tool-fs = { path = "crates/tools/fs" }
+kkr-tool-shell = { path = "crates/tools/shell" }
+kkr-tool-git = { path = "crates/tools/git" }
+kkr-tool-search = { path = "crates/tools/search" }
 
 [profile.release]
 opt-level = 3

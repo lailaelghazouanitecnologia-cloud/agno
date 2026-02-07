@@ -1,0 +1,39 @@
+{
+  "name": "c-compiler-js",
+  "version": "1.0.0",
+  "description": "Un compilador de C escrito en JavaScript que convierte código C a JavaScript equivalente",
+  "main": "src/index.js",
+  "bin": {
+    "c-compiler-js": "./src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node src/index.js examples/hello.c && node src/index.js examples/fibonacci.c",
+    "test:hello": "node src/index.js examples/hello.c",
+    "test:fibonacci": "node src/index.js examples/fibonacci.c",
+    "test:verbose": "node src/index.js -v examples/hello.c",
+    "compile": "node src/index.js -c examples/hello.c"
+  },
+  "keywords": [
+    "compiler",
+    "c",
+    "javascript",
+    "lexer",
+    "parser",
+    "ast",
+    "code-generator"
+  ],
+  "author": "C Compiler JS",
+  "license": "MIT",
+  "engines": {
+    "node": ">=12.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/example/c-compiler-js"
+  },
+  "bugs": {
+    "url": "https://github.com/example/c-compiler-js/issues"
+  },
+  "homepage": "https://github.com/example/c-compiler-js#readme"
+}

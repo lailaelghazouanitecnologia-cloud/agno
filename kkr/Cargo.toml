@@ -36,7 +36,7 @@ members = [
     "crates/sdk/tendencies",
     "crates/bindings/python",
     "crates/bindings/node",
-    "examples/neuroscience-blog",
+    "examples/kkr-agent-demo",
 ]
 
 [workspace.package]

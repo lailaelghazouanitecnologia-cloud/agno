@@ -12,9 +12,13 @@
 
 mod dispatch;
 mod event;
+pub mod bridge;
+pub mod orchestrator;
 
 pub use dispatch::{AgentHandle, AgentPool};
 pub use event::CoordinatorEvent;
+pub use bridge::{LlmProvider, AgentDispatcher, CoordinatorHandler, EchoLlm, EchoAgentDispatcher};
+pub use orchestrator::{Orchestrator, OrchestrationResult};
 
 use kkr_ast::AstLevel;
 use kkr_project::{AgentRole, Plan, PlanStep, Project, Template};

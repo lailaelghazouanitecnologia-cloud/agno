@@ -11,6 +11,8 @@ kkr-ast = { path = "../ast" }
 kkr-graph = { path = "../graph" }
 kkr-errordb = { path = "../errordb" }
 kkr-project = { path = "../project" }
+kkr-vm = { path = "../vm" }
+kkr-plan = { path = "../plan" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -21,3 +23,4 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
+kkr-refactor = { path = "../refactor" }

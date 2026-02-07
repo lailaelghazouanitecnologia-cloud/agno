@@ -1,0 +1,18 @@
+[package]
+name = "entity-cli"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+entity-core = { workspace = true }
+entity-tools = { workspace = true }
+entity-context = { workspace = true }
+entity-session = { workspace = true }
+entity-safety = { workspace = true }
+entity-runner = { workspace = true }
+common-error = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+crossterm = { workspace = true }

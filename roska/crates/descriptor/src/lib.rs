@@ -25,7 +25,7 @@ pub use change::{ChangeKind, Change, ChangeSet, Propagation};
 
 /// Depth levels for descriptor access.
 /// Lower depth = fewer tokens, cheaper for LLM.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Depth {
     /// Purpose + tags only (~10 tokens per file)
     Overview = 0,

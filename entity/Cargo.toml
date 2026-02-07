@@ -2,9 +2,15 @@
 resolver = "2"
 members = [
     "crates/entity-core",
-    "crates/entity-descriptor",
-    "crates/entity-planner",
-    "crates/entity-coder",
+    "crates/entities/entity-descriptor",
+    "crates/entities/entity-planner",
+    "crates/entities/entity-coder",
+    "crates/entity-tools",
+    "crates/entity-context",
+    "crates/entity-session",
+    "crates/entity-safety",
+    "crates/entity-runner",
+    "crates/entity-cli",
 ]
 
 [workspace.package]
@@ -18,6 +24,11 @@ serde_yaml = "0.9"
 thiserror = "1.0"
 async-trait = "0.1"
 tokio = { version = "1", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+glob = "0.3"
+regex = "1"
+crossterm = "0.27"
 common-error = { path = "../common/crates/common-error" }
 common-traits = { path = "../common/crates/common-traits" }
 common-config = { path = "../common/crates/common-config" }
@@ -27,6 +38,12 @@ roska-generator = { path = "../roska/crates/generator" }
 roska-differ = { path = "../roska/crates/differ" }
 roska-processor = { path = "../roska/crates/processor" }
 entity-core = { path = "crates/entity-core" }
-entity-descriptor = { path = "crates/entity-descriptor" }
-entity-planner = { path = "crates/entity-planner" }
-entity-coder = { path = "crates/entity-coder" }
+entity-descriptor = { path = "crates/entities/entity-descriptor" }
+entity-planner = { path = "crates/entities/entity-planner" }
+entity-coder = { path = "crates/entities/entity-coder" }
+entity-tools = { path = "crates/entity-tools" }
+entity-context = { path = "crates/entity-context" }
+entity-session = { path = "crates/entity-session" }
+entity-safety = { path = "crates/entity-safety" }
+entity-runner = { path = "crates/entity-runner" }
+entity-cli = { path = "crates/entity-cli" }

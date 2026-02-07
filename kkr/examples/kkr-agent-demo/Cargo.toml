@@ -6,5 +6,4 @@ edition = "2021"
 [dependencies]
 kkr-core = { path = "../../crates/core" }
 kkr-provider-openai = { path = "../../crates/providers/openai" }
-kkr-tool-fs = { path = "../../crates/tools/fs" }
 tokio = { version = "1.35", features = ["full"] }

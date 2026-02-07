@@ -11,6 +11,11 @@ members = [
     "crates/entity-safety",
     "crates/entity-runner",
     "crates/entity-cli",
+    # Memory & Knowledge
+    "crates/entity-memory",
+    "crates/entity-embedder",
+    "crates/entity-vectordb",
+    "crates/entity-knowledge",
 ]
 
 [workspace.package]
@@ -29,6 +34,8 @@ uuid = { version = "1", features = ["v4", "serde"] }
 glob = "0.3"
 regex = "1"
 crossterm = "0.27"
+reqwest = { version = "0.11", features = ["json"] }
+tokio-rusqlite = "0.6"
 common-error = { path = "../common/crates/common-error" }
 common-traits = { path = "../common/crates/common-traits" }
 common-config = { path = "../common/crates/common-config" }
@@ -47,3 +54,7 @@ entity-session = { path = "crates/entity-session" }
 entity-safety = { path = "crates/entity-safety" }
 entity-runner = { path = "crates/entity-runner" }
 entity-cli = { path = "crates/entity-cli" }
+entity-memory = { path = "crates/entity-memory" }
+entity-embedder = { path = "crates/entity-embedder" }
+entity-vectordb = { path = "crates/entity-vectordb" }
+entity-knowledge = { path = "crates/entity-knowledge" }

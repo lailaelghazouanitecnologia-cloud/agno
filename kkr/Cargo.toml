@@ -1,24 +1,22 @@
 [workspace]
 resolver = "2"
 members = [
+    # Core abstract framework
     "crates/core",
-    "crates/runtime",
     "crates/workflow",
+    # LLM Providers
     "crates/providers/anthropic",
     "crates/providers/groq",
     "crates/providers/openai",
     "crates/providers/google",
     "crates/providers/ollama",
     "crates/providers/mistral",
-    "crates/tools/fs",
-    "crates/tools/git",
-    "crates/tools/shell",
+    # Extended tools (not in entity)
     "crates/tools/http",
     "crates/tools/json",
     "crates/tools/regex",
     "crates/tools/time",
     "crates/tools/math",
-    "crates/tools/search",
     "crates/tools/github",
     "crates/tools/arxiv",
     "crates/tools/neo4j",
@@ -27,13 +25,11 @@ members = [
     "crates/tools/finance",
     "crates/tools/youtube",
     "crates/tools/duckdb",
-    "crates/embedders",
-    "crates/vectordb",
+    # Protocol
     "crates/mcp",
-    "crates/knowledge",
-    "crates/memory",
-    "crates/sdk/guardrails",
+    # SDK
     "crates/sdk/tendencies",
+    # Bindings
     "crates/bindings/python",
     "crates/bindings/node",
     # Project Intelligence System
@@ -43,7 +39,7 @@ members = [
     "crates/project",
     "crates/coordinator",
     "crates/refactor",
-    # VM + Plan (new architecture)
+    # VM + Plan
     "crates/vm",
     "crates/plan",
     "examples/kkr-agent-demo",
@@ -91,7 +87,6 @@ toml = "0.8"
 
 # Internal crates
 kkr-core = { path = "crates/core" }
-kkr-runtime = { path = "crates/runtime" }
 kkr-workflow = { path = "crates/workflow" }
 kkr-ast = { path = "crates/ast" }
 kkr-graph = { path = "crates/graph" }

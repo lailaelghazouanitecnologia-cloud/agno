@@ -53,17 +53,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_approval_policy(ApprovalPolicy::Never);
 
     // -- Capsule --
-    let fs_capsule = CapsuleBuilder::new("fs")
-        .description("Filesystem: create dirs, write/read files, list contents")
+    // NOTE: filesystem tools moved to entity-tools crate.
+    // This demo uses the agent without capsules to show provider usage.
+    let capsule = CapsuleBuilder::new("demo")
+        .description("Demo capsule (tools available via entity-tools)")
         .scope(".")
-        .tool(Box::new(kkr_tool_fs::WriteFileTool::new()))
-        .tool(Box::new(kkr_tool_fs::ReadFileTool::new()))
-        .tool(Box::new(kkr_tool_fs::MkdirTool::new()))
-        .tool(Box::new(kkr_tool_fs::ListDirTool::new()))
         .build();
 
     let mut agent = Agent::new(agent_config, workspace, Box::new(provider));
-    agent.add_capsule(fs_capsule);
+    agent.add_capsule(capsule);
 
     println!("=== KKR Agent Demo ===");
     println!("Provider: baseten.co | Model: zai-org/GLM-4.7");

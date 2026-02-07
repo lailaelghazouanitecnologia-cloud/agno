@@ -1,0 +1,14 @@
+[package]
+name = "entity-vectordb"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+common-error = { workspace = true }
+entity-embedder = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+uuid = { workspace = true }

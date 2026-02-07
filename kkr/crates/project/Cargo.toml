@@ -1,0 +1,19 @@
+[package]
+name = "kkr-project"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Project import, .kkr templates, and plan management for KKR"
+
+[dependencies]
+kkr-ast = { path = "../ast" }
+kkr-graph = { path = "../graph" }
+kkr-errordb = { path = "../errordb" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+toml = "0.8"
+
+[dev-dependencies]
+tokio = { workspace = true }

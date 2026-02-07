@@ -36,6 +36,13 @@ members = [
     "crates/sdk/tendencies",
     "crates/bindings/python",
     "crates/bindings/node",
+    # Project Intelligence System (ECS-inspired)
+    "crates/ast",
+    "crates/graph",
+    "crates/errordb",
+    "crates/project",
+    "crates/coordinator",
+    "crates/refactor",
     "examples/kkr-agent-demo",
 ]
 
@@ -76,10 +83,19 @@ crossbeam-channel = "0.5"
 # Regex
 regex = "1.10"
 
+# TOML
+toml = "0.8"
+
 # Internal crates
 kkr-core = { path = "crates/core" }
 kkr-runtime = { path = "crates/runtime" }
 kkr-workflow = { path = "crates/workflow" }
+kkr-ast = { path = "crates/ast" }
+kkr-graph = { path = "crates/graph" }
+kkr-errordb = { path = "crates/errordb" }
+kkr-project = { path = "crates/project" }
+kkr-coordinator = { path = "crates/coordinator" }
+kkr-refactor = { path = "crates/refactor" }
 
 [profile.release]
 opt-level = 3

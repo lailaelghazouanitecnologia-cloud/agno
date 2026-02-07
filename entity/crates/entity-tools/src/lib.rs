@@ -3,6 +3,7 @@
 //! Provides file operations, shell execution, code search, and git operations
 //! that agents use to interact with the codebase.
 
+pub mod advanced;
 pub mod file;
 pub mod shell;
 pub mod search;

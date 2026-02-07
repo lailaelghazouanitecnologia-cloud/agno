@@ -1,0 +1,17 @@
+[package]
+name = "entity-tools-search"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+entity-tools = { workspace = true }
+common-error = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+urlencoding = "2.1"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

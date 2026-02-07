@@ -16,6 +16,13 @@ members = [
     "crates/entity-embedder",
     "crates/entity-vectordb",
     "crates/entity-knowledge",
+    # Runtime & Advanced Tools
+    "crates/entity-runtime",
+    "crates/entity-guardrails",
+    "crates/entity-tools-fs",
+    "crates/entity-tools-git",
+    "crates/entity-tools-shell",
+    "crates/entity-tools-search",
 ]
 
 [workspace.package]
@@ -58,3 +65,13 @@ entity-memory = { path = "crates/entity-memory" }
 entity-embedder = { path = "crates/entity-embedder" }
 entity-vectordb = { path = "crates/entity-vectordb" }
 entity-knowledge = { path = "crates/entity-knowledge" }
+entity-runtime = { path = "crates/entity-runtime" }
+entity-guardrails = { path = "crates/entity-guardrails" }
+entity-tools-fs = { path = "crates/entity-tools-fs" }
+entity-tools-git = { path = "crates/entity-tools-git" }
+entity-tools-shell = { path = "crates/entity-tools-shell" }
+entity-tools-search = { path = "crates/entity-tools-search" }
+tracing = "0.1"
+futures = "0.3"
+urlencoding = "2.1"
+tempfile = "3"

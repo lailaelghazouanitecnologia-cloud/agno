@@ -1,0 +1,12 @@
+[package]
+name = "knowledge-memory"
+version.workspace = true
+edition.workspace = true
+description = "Agent memory: session context, learnings, patterns"
+
+[dependencies]
+knowledge-core = { workspace = true }
+common-error = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }

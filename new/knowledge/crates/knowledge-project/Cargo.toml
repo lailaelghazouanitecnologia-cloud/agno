@@ -1,0 +1,17 @@
+[package]
+name = "knowledge-project"
+version.workspace = true
+edition.workspace = true
+description = "Project intelligence: code structure, file purposes, dependency tracking"
+
+[dependencies]
+knowledge-core = { workspace = true }
+common-error = { workspace = true }
+roska-descriptor = { workspace = true }
+roska-generator = { workspace = true }
+roska-processor = { workspace = true }
+roska-differ = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }

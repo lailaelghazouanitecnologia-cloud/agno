@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/knowledge-core",
+    "crates/knowledge-memory",
+    "crates/knowledge-project",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.35", features = ["full"] }
+async-trait = "0.1"
+
+# Shared
+common-error = { path = "../common/crates/common-error" }
+
+# Roska — code analysis
+roska-descriptor = { path = "../roska/crates/descriptor" }
+roska-generator = { path = "../roska/crates/generator" }
+roska-differ = { path = "../roska/crates/differ" }
+roska-processor = { path = "../roska/crates/processor" }
+
+# Internal
+knowledge-core = { path = "crates/knowledge-core" }
+knowledge-memory = { path = "crates/knowledge-memory" }
+knowledge-project = { path = "crates/knowledge-project" }

@@ -1,0 +1,10 @@
+[package]
+name = "knowledge-core"
+version.workspace = true
+edition.workspace = true
+description = "Core types and traits for the knowledge system"
+
+[dependencies]
+common-error = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

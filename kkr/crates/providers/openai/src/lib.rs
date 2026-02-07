@@ -41,6 +41,7 @@ impl OpenAIModel {
 pub struct OpenAIConfig {
     pub api_key: String,
     pub model: OpenAIModel,
+    pub model_name: Option<String>,
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
     pub base_url: String,
@@ -51,6 +52,7 @@ impl OpenAIConfig {
         Self {
             api_key: api_key.into(),
             model: OpenAIModel::default(),
+            model_name: None,
             max_tokens: None,
             temperature: None,
             base_url: "https://api.openai.com/v1".to_string(),
@@ -85,6 +87,15 @@ impl OpenAIConfig {
     pub fn base_url(mut self, url: impl Into<String>) -> Self {
         self.base_url = url.into();
         self
+    }
+
+    pub fn model_name(mut self, name: impl Into<String>) -> Self {
+        self.model_name = Some(name.into());
+        self
+    }
+
+    pub fn effective_model(&self) -> String {
+        self.model_name.clone().unwrap_or_else(|| self.model.as_str().to_string())
     }
 }
 
@@ -175,7 +186,7 @@ impl Provider for OpenAI {
         let api_messages = self.convert_messages(&messages);
 
         let mut request = ApiRequest {
-            model: self.config.model.as_str().to_string(),
+            model: self.config.effective_model(),
             messages: api_messages,
             max_tokens: self.config.max_tokens,
             temperature: self.config.temperature,
@@ -183,7 +194,8 @@ impl Provider for OpenAI {
             tool_choice: None,
         };
 
-        if self.config.model.supports_tools() {
+        let supports_tools = self.config.model_name.is_some() || self.config.model.supports_tools();
+        if supports_tools {
             if let Some(ref t) = tools {
                 if !t.is_empty() {
                     request.tools = Some(self.convert_tools(t));

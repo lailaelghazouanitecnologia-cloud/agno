@@ -36,6 +36,7 @@ members = [
     "crates/sdk/tendencies",
     "crates/bindings/python",
     "crates/bindings/node",
+    "examples/neuroscience-blog",
 ]
 
 [workspace.package]

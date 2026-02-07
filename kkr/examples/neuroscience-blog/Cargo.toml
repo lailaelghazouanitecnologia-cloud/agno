@@ -1,0 +1,9 @@
+[package]
+name = "neuroscience-blog"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kkr-core = { path = "../../crates/core" }
+kkr-provider-openai = { path = "../../crates/providers/openai" }
+tokio = { version = "1.35", features = ["full"] }

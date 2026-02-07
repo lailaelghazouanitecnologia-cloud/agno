@@ -1,0 +1,31 @@
+[package]
+name = "mos"
+version = "0.1.0"
+edition = "2021"
+description = "Autonomous coding agent — unifies entity + kkr"
+
+[[bin]]
+name = "mos"
+path = "src/main.rs"
+
+[dependencies]
+# KKR — agent core, providers, tools
+kkr-core = { path = "../kkr/crates/core" }
+kkr-provider-openai = { path = "../kkr/crates/providers/openai" }
+
+# Entity — coding tools
+entity-tools = { path = "../entity/crates/tools/entity-tools" }
+
+# Shared
+common-error = { path = "../common/crates/common-error" }
+
+# Async
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Path handling (kkr-core uses camino)
+camino = { version = "1.1", features = ["serde1"] }

@@ -126,7 +126,7 @@ pub struct ToolCall {
 
 #[napi]
 pub struct Memory {
-    inner: Arc<RwLock<kkr_core::memory::Memory>>,
+    inner: Arc<RwLock<Vec<kkr_core::Message>>>,
 }
 
 #[napi]
@@ -134,7 +134,7 @@ impl Memory {
     #[napi(constructor)]
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(RwLock::new(kkr_core::memory::Memory::new())),
+            inner: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -143,7 +143,7 @@ impl Memory {
     pub fn add(&self, message: Message) -> Result<()> {
         let mut inner = self.inner.write()
             .map_err(|e| Error::from_reason(format!("Lock error: {}", e)))?;
-        inner.add(message.into());
+        inner.push(message.into());
         Ok(())
     }
 
@@ -152,7 +152,7 @@ impl Memory {
     pub fn messages(&self) -> Result<Vec<Message>> {
         let inner = self.inner.read()
             .map_err(|e| Error::from_reason(format!("Lock error: {}", e)))?;
-        Ok(inner.messages().into_iter().map(|m| m.clone().into()).collect())
+        Ok(inner.iter().map(|m| m.clone().into()).collect())
     }
 
     /// Get last N messages
@@ -160,7 +160,8 @@ impl Memory {
     pub fn last_n(&self, n: u32) -> Result<Vec<Message>> {
         let inner = self.inner.read()
             .map_err(|e| Error::from_reason(format!("Lock error: {}", e)))?;
-        Ok(inner.last_n(n as usize).into_iter().map(|m| m.clone().into()).collect())
+        let skip = inner.len().saturating_sub(n as usize);
+        Ok(inner.iter().skip(skip).map(|m| m.clone().into()).collect())
     }
 
     /// Clear all messages
@@ -216,7 +217,7 @@ pub struct SearchResult {
 
 #[napi]
 pub struct Knowledge {
-    inner: Arc<RwLock<kkr_core::knowledge::Knowledge>>,
+    inner: Arc<RwLock<Vec<Document>>>,
 }
 
 #[napi]
@@ -224,7 +225,7 @@ impl Knowledge {
     #[napi(constructor)]
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(RwLock::new(kkr_core::knowledge::Knowledge::new())),
+            inner: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -233,9 +234,13 @@ impl Knowledge {
     pub fn add(&self, content: String) -> Result<String> {
         let mut inner = self.inner.write()
             .map_err(|e| Error::from_reason(format!("Lock error: {}", e)))?;
-        let doc = kkr_core::knowledge::Document::new(content);
-        let id = doc.id.to_string();
-        inner.add(doc);
+        let id = uuid::Uuid::new_v4().to_string();
+        let doc = Document {
+            id: id.clone(),
+            content,
+            metadata: HashMap::new(),
+        };
+        inner.push(doc);
         Ok(id)
     }
 
@@ -244,19 +249,14 @@ impl Knowledge {
     pub fn search(&self, query: String) -> Result<Vec<SearchResult>> {
         let inner = self.inner.read()
             .map_err(|e| Error::from_reason(format!("Lock error: {}", e)))?;
-        let results = inner.search_text(&query);
-        Ok(results.into_iter().map(|r| {
-            SearchResult {
-                document: Document {
-                    id: r.document.id.to_string(),
-                    content: r.document.content,
-                    metadata: r.document.metadata.into_iter()
-                        .map(|(k, v)| (k, v.to_string()))
-                        .collect(),
-                },
-                score: r.score as f64,
-            }
-        }).collect())
+        let query_lower = query.to_lowercase();
+        Ok(inner.iter()
+            .filter(|d| d.content.to_lowercase().contains(&query_lower))
+            .map(|d| SearchResult {
+                document: d.clone(),
+                score: (query.len() as f64 / d.content.len().max(1) as f64).min(1.0),
+            })
+            .collect())
     }
 
     /// Number of documents

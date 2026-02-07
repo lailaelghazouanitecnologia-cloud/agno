@@ -1,112 +1,82 @@
-//! Error types for KKR Core
+//! Error types for KKR Core — delegates to common-error.
+//!
+//! Provides convenience constructors that match the original KKR API
+//! while using `common_error::Error` as the underlying type.
 
-use thiserror::Error;
+pub use common_error::{Error, ErrorKind, Result};
 
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("Agent error: {message}")]
-    Agent { message: String, source: Option<Box<dyn std::error::Error + Send + Sync>> },
+/// Convenience constructors for KKR-specific error patterns.
+///
+/// These are free functions in the `error` module so existing code can
+/// migrate from `kkr_core::Error::tool(msg)` to `kkr_core::error::tool(msg)`.
 
-    #[error("Capsule error: {message}")]
-    Capsule { message: String },
-
-    #[error("Pipeline error: {message}")]
-    Pipeline { message: String },
-
-    #[error("Tool error: {tool}: {message}")]
-    Tool { tool: String, message: String },
-
-    #[error("Tool not found: {0}")]
-    ToolNotFound(String),
-
-    #[error("Memory error: {0}")]
-    Memory(String),
-
-    #[error("Knowledge error: {0}")]
-    Knowledge(String),
-
-    #[error("Workspace error: {0}")]
-    Workspace(String),
-
-    #[error("Validation error: {field}: {message}")]
-    Validation { field: String, message: String },
-
-    #[error("Provider error: {provider}: {message}")]
-    Provider { provider: String, message: String },
-
-    #[error("Config error: {0}")]
-    Config(String),
-
-    #[error("Embedder error: {0}")]
-    Embedder(String),
-
-    #[error("VectorDB error: {0}")]
-    VectorDB(String),
-
-    #[error("MCP error: {0}")]
-    Mcp(String),
-
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-
-    #[error("Serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
-
-    #[error("Task cancelled")]
-    Cancelled,
-
-    #[error("Operation timed out after {duration_ms}ms")]
-    Timeout { duration_ms: u64 },
-
-    #[error("Rate limited: {message}")]
-    RateLimited { message: String, retry_after_ms: Option<u64> },
-
-    #[error("Security violation: {0}")]
-    Security(String),
-
-    #[error("Path traversal denied: {path}")]
-    PathTraversal { path: String },
-
-    #[error("{0}")]
-    Other(String),
+pub fn tool(message: impl Into<String>) -> Error {
+    Error::new(ErrorKind::Internal, message)
 }
 
-impl Error {
-    pub fn tool(message: impl Into<String>) -> Self {
-        Error::Tool { tool: String::new(), message: message.into() }
-    }
-
-    pub fn tool_named(tool: impl Into<String>, message: impl Into<String>) -> Self {
-        Error::Tool { tool: tool.into(), message: message.into() }
-    }
-
-    pub fn agent(message: impl Into<String>) -> Self {
-        Error::Agent { message: message.into(), source: None }
-    }
-
-    pub fn validation(field: impl Into<String>, message: impl Into<String>) -> Self {
-        Error::Validation { field: field.into(), message: message.into() }
-    }
-
-    pub fn provider(provider: impl Into<String>, message: impl Into<String>) -> Self {
-        Error::Provider { provider: provider.into(), message: message.into() }
-    }
-
-    pub fn security(message: impl Into<String>) -> Self {
-        Error::Security(message.into())
-    }
-
-    pub fn timeout(duration_ms: u64) -> Self {
-        Error::Timeout { duration_ms }
-    }
-
-    pub fn is_retryable(&self) -> bool {
-        matches!(self, Error::Timeout { .. } | Error::RateLimited { .. } | Error::Io(_))
-    }
-
-    pub fn is_security(&self) -> bool {
-        matches!(self, Error::Security(_) | Error::PathTraversal { .. })
-    }
+pub fn tool_named(tool: impl Into<String>, message: impl Into<String>) -> Error {
+    Error::new(
+        ErrorKind::Internal,
+        format!("{}: {}", tool.into(), message.into()),
+    )
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub fn agent(message: impl Into<String>) -> Error {
+    Error::new(ErrorKind::Internal, message)
+}
+
+pub fn validation(field: impl Into<String>, message: impl Into<String>) -> Error {
+    Error::new(
+        ErrorKind::InvalidValue,
+        format!("{}: {}", field.into(), message.into()),
+    )
+}
+
+pub fn provider(provider: impl Into<String>, message: impl Into<String>) -> Error {
+    Error::new(
+        ErrorKind::Provider,
+        format!("{}: {}", provider.into(), message.into()),
+    )
+}
+
+pub fn security(message: impl Into<String>) -> Error {
+    Error::new(ErrorKind::Security, message)
+}
+
+pub fn timeout(duration_ms: u64) -> Error {
+    Error::new(
+        ErrorKind::Timeout,
+        format!("Operation timed out after {}ms", duration_ms),
+    )
+}
+
+pub fn config(message: impl Into<String>) -> Error {
+    Error::new(ErrorKind::Config, message)
+}
+
+pub fn not_found(message: impl Into<String>) -> Error {
+    Error::new(ErrorKind::NotFound, message)
+}
+
+pub fn cancelled() -> Error {
+    Error::new(ErrorKind::Cancelled, "Task cancelled")
+}
+
+pub fn mcp(message: impl Into<String>) -> Error {
+    Error::new(ErrorKind::Internal, message)
+}
+
+pub fn workspace(message: impl Into<String>) -> Error {
+    Error::new(ErrorKind::Internal, message)
+}
+
+pub fn path_traversal(path: impl Into<String>) -> Error {
+    Error::new(
+        ErrorKind::PathTraversal,
+        format!("Path traversal denied: {}", path.into()),
+    )
+}
+
+pub fn other(message: impl Into<String>) -> Error {
+    Error::new(ErrorKind::Internal, message)
+}

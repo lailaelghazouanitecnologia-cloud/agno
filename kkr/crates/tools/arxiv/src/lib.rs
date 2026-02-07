@@ -181,7 +181,7 @@ impl Tool for ArxivSearchTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: ArxivSearchParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         let max_results = params.max_results.unwrap_or(self.max_results);
         let sort_by = params.sort_by.unwrap_or_else(|| "relevance".to_string());
@@ -203,12 +203,12 @@ impl Tool for ArxivSearchTool {
             .get(&url)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Request failed: {}", e)))?;
 
         let xml = response
             .text()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to read response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to read response: {}", e)))?;
 
         let papers = self.parse_arxiv_xml(&xml);
 
@@ -287,7 +287,7 @@ impl Tool for PubMedSearchTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: PubMedSearchParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         let max_results = params.max_results.unwrap_or(self.max_results);
 
@@ -302,12 +302,12 @@ impl Tool for PubMedSearchTool {
             .get(&search_url)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Search request failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Search request failed: {}", e)))?;
 
         let search_result: Value = search_response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse search response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse search response: {}", e)))?;
 
         let ids: Vec<&str> = search_result["esearchresult"]["idlist"]
             .as_array()
@@ -332,12 +332,12 @@ impl Tool for PubMedSearchTool {
             .get(&fetch_url)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Fetch request failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Fetch request failed: {}", e)))?;
 
         let fetch_result: Value = fetch_response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse fetch response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse fetch response: {}", e)))?;
 
         let mut papers = Vec::new();
         if let Some(result) = fetch_result["result"].as_object() {
@@ -451,7 +451,7 @@ impl Tool for SemanticScholarTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: S2SearchParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         let limit = params.limit.unwrap_or(10).min(100);
 
@@ -478,12 +478,12 @@ impl Tool for SemanticScholarTool {
         let response = request
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Request failed: {}", e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(kkr_core::Error::tool(format!(
+            return Err(kkr_core::error::tool(format!(
                 "Semantic Scholar API error {}: {}",
                 status, text
             )));
@@ -492,7 +492,7 @@ impl Tool for SemanticScholarTool {
         let result: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse response: {}", e)))?;
 
         let papers: Vec<Value> = result["data"]
             .as_array()

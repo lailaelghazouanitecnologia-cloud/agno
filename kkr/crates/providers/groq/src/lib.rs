@@ -70,7 +70,7 @@ impl GroqConfig {
 
     pub fn from_env() -> Result<Self> {
         let api_key = env::var("GROQ_API_KEY")
-            .map_err(|_| kkr_core::Error::Config("GROQ_API_KEY not set".into()))?;
+            .map_err(|_| kkr_core::error::config("GROQ_API_KEY not set"))?;
         Ok(Self::new(api_key))
     }
 
@@ -219,30 +219,30 @@ impl Provider for Groq {
             .json(&request)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::provider("groq",format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::provider("groq",format!("Request failed: {}", e)))?;
 
         let status = response.status();
         let body = response
             .text()
             .await
-            .map_err(|e| kkr_core::Error::provider("groq",format!("Failed to read response: {}", e)))?;
+            .map_err(|e| kkr_core::error::provider("groq",format!("Failed to read response: {}", e)))?;
 
         if !status.is_success() {
-            return Err(kkr_core::Error::provider("groq",format!(
+            return Err(kkr_core::error::provider("groq",format!(
                 "API error ({}): {}",
                 status, body
             )));
         }
 
         let api_response: ApiResponse = serde_json::from_str(&body).map_err(|e| {
-            kkr_core::Error::provider("groq",format!("Failed to parse response: {} - {}", e, body))
+            kkr_core::error::provider("groq",format!("Failed to parse response: {} - {}", e, body))
         })?;
 
         let choice = api_response
             .choices
             .into_iter()
             .next()
-            .ok_or_else(|| kkr_core::Error::provider("groq", "No choices in response"))?;
+            .ok_or_else(|| kkr_core::error::provider("groq", "No choices in response"))?;
 
         let tool_calls = choice.message.tool_calls.map(|tcs| {
             tcs.into_iter()

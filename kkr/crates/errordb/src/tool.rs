@@ -70,16 +70,16 @@ impl Tool for ErrorDbTool {
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> kkr_core::Result<Value> {
         let operation = params.get("operation")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| kkr_core::Error::tool_named("errordb", "missing 'operation' field"))?;
+            .ok_or_else(|| kkr_core::error::tool_named("errordb", "missing 'operation' field"))?;
 
         let mut db = self.db.lock()
-            .map_err(|e| kkr_core::Error::tool_named("errordb", format!("lock error: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool_named("errordb", format!("lock error: {}", e)))?;
 
         match operation {
             "record" => {
                 let problem = params.get("problem")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| kkr_core::Error::tool_named("errordb", "missing 'problem' for record"))?;
+                    .ok_or_else(|| kkr_core::error::tool_named("errordb", "missing 'problem' for record"))?;
                 let solution = params.get("solution")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
@@ -91,12 +91,12 @@ impl Tool for ErrorDbTool {
 
                 let is_recurring = if tags.is_empty() {
                     db.record_error(problem, solution)
-                        .map_err(|e| kkr_core::Error::tool_named("errordb", e.to_string()))?
+                        .map_err(|e| kkr_core::error::tool_named("errordb", e.to_string()))?
                 } else {
                     db.record_error_with_context(
                         problem, solution,
                         tags, None, None,
-                    ).map_err(|e| kkr_core::Error::tool_named("errordb", e.to_string()))?
+                    ).map_err(|e| kkr_core::error::tool_named("errordb", e.to_string()))?
                 };
 
                 Ok(serde_json::json!({
@@ -108,7 +108,7 @@ impl Tool for ErrorDbTool {
             "find" => {
                 let problem = params.get("problem")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| kkr_core::Error::tool_named("errordb", "missing 'problem' for find"))?;
+                    .ok_or_else(|| kkr_core::error::tool_named("errordb", "missing 'problem' for find"))?;
 
                 let solutions = db.find_solutions(problem);
                 let results: Vec<Value> = solutions.iter().map(|r| {
@@ -142,7 +142,7 @@ impl Tool for ErrorDbTool {
                 }))
             }
 
-            _ => Err(kkr_core::Error::tool_named(
+            _ => Err(kkr_core::error::tool_named(
                 "errordb",
                 format!("unknown operation: {}", operation),
             )),

@@ -85,6 +85,9 @@ regex = "1.10"
 # TOML
 toml = "0.8"
 
+# Shared
+common-error = { path = "../common/crates/common-error" }
+
 # Internal crates
 kkr-core = { path = "crates/core" }
 kkr-workflow = { path = "crates/workflow" }

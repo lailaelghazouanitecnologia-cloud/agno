@@ -4,10 +4,6 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use crate::capsule::Capsule;
-use crate::hook::{HookContext, HookRegistry};
-use crate::knowledge::Knowledge;
-use crate::memory::Memory;
-use crate::session::AgentSession;
 use crate::types::{Id, Message, Output, Role, Task, ToolCall};
 use crate::workspace::Workspace;
 use crate::Result;
@@ -315,9 +311,7 @@ pub struct Agent {
     pub id: Id,
     pub config: AgentConfig,
     pub workspace: Workspace,
-    pub memory: Memory,
-    pub knowledge: Knowledge,
-    pub hooks: HookRegistry,
+    pub messages: Vec<Message>,
     session_id: Option<String>,
     user_id: Option<String>,
     capsules: Vec<Capsule>,
@@ -358,9 +352,7 @@ impl Agent {
             id: crate::new_id(),
             config,
             workspace,
-            memory: Memory::new(),
-            knowledge: Knowledge::new(),
-            hooks: HookRegistry::new(),
+            messages: Vec::new(),
             session_id: None,
             user_id: None,
             capsules: Vec::new(),
@@ -373,11 +365,6 @@ impl Agent {
         }
     }
 
-    pub fn with_hooks(mut self, hooks: HookRegistry) -> Self {
-        self.hooks = hooks;
-        self
-    }
-
     pub fn with_session(mut self, session_id: impl Into<String>) -> Self {
         let session_id = session_id.into();
         debug_assert!(!session_id.is_empty(), "session_id must not be empty");
@@ -387,7 +374,6 @@ impl Agent {
             return self;
         }
         self.session_id = Some(session_id);
-        self.memory = self.memory.with_session(self.session_id.as_ref().unwrap());
         self
     }
 
@@ -400,7 +386,6 @@ impl Agent {
             return self;
         }
         self.user_id = Some(user_id);
-        self.memory = self.memory.with_user(self.user_id.as_ref().unwrap());
         self
     }
 
@@ -506,18 +491,12 @@ impl Agent {
     async fn execute_tool_call(&self, tool_call: &ToolCall) -> Result<serde_json::Value> {
         debug_assert!(!tool_call.name.is_empty(), "tool call name must not be empty");
         if tool_call.name.is_empty() {
-            return Err(crate::Error::Validation {
-                field: "tool_call.name".to_string(),
-                message: "tool call name must not be empty".to_string(),
-            });
+            return Err(crate::error::validation("tool_call.name", "tool call name must not be empty"));
         }
 
         let parts: Vec<&str> = tool_call.name.splitn(2, '_').collect();
         if parts.len() != 2 {
-            return Err(crate::Error::Tool {
-                tool: tool_call.name.clone(),
-                message: format!("Invalid tool name format: {}", tool_call.name),
-            });
+            return Err(crate::error::tool_named(&tool_call.name, format!("Invalid tool name format: {}", tool_call.name)));
         }
 
         let capsule_name = parts[0];
@@ -530,7 +509,7 @@ impl Agent {
             .capsules
             .iter()
             .find(|c| c.name() == capsule_name)
-            .ok_or_else(|| crate::Error::Capsule { message: format!("Capsule not found: {}", capsule_name) })?;
+            .ok_or_else(|| crate::error::other(format!("Capsule not found: {}", capsule_name)))?;
 
         let workspace_root = Some(self.workspace.root().to_owned());
         capsule
@@ -564,22 +543,6 @@ impl Agent {
         Err(last_error.unwrap())
     }
 
-    async fn create_hook_context(&self, run_id: &str, task: &Task) -> Result<HookContext> {
-        let messages = self.memory.messages_async().await?;
-        let mut ctx = HookContext::new(self.id.to_string(), run_id)
-            .with_messages(messages)
-            .with_task(task.clone());
-
-        if let Some(ref session_id) = self.session_id {
-            ctx = ctx.with_session(session_id);
-        }
-        if let Some(ref user_id) = self.user_id {
-            ctx = ctx.with_user(user_id);
-        }
-
-        Ok(ctx)
-    }
-
     pub async fn run(&mut self, task: Task) -> Result<Output> {
         self.run_with_events(task, None).await
     }
@@ -590,10 +553,7 @@ impl Agent {
         event_tx: Option<mpsc::Sender<AgentEvent>>,
     ) -> Result<Output> {
         if task.input.is_empty() {
-            return Err(crate::Error::Validation {
-                field: "task.input".to_string(),
-                message: "task input must not be empty".to_string(),
-            });
+            return Err(crate::error::validation("task.input", "task input must not be empty"));
         }
 
         let run_id = crate::new_id().to_string();
@@ -602,19 +562,9 @@ impl Agent {
             let _ = tx.send(AgentEvent::RunStarted { run_id: run_id.clone() }).await;
         }
 
-        let mut hook_ctx = self.create_hook_context(&run_id, &task).await?;
-        let pre_result = self.hooks.run_pre_hooks(&mut hook_ctx).await?;
-        if pre_result.should_abort() {
-            let output = Output::failure(task.id, "Aborted by pre-hook".to_string());
-            if let Some(ref tx) = event_tx {
-                let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
-            }
-            return Ok(output);
-        }
-
         let mut messages = vec![self.system_message()];
 
-        for msg in self.memory.messages_async().await? {
+        for msg in self.messages.clone() {
             messages.push(msg);
         }
 
@@ -626,7 +576,7 @@ impl Agent {
             tool_call_id: None,
         };
         messages.push(user_msg.clone());
-        self.memory.add_async(user_msg.clone()).await?;
+        self.messages.push(user_msg.clone());
 
         if let Some(ref tx) = event_tx {
             let _ = tx.send(AgentEvent::MessageAdded { message: user_msg }).await;
@@ -640,7 +590,6 @@ impl Agent {
         loop {
             if iterations >= self.config.max_iterations {
                 let output = Output::failure(task.id, "Max iterations reached".to_string());
-                self.hooks.run_post_hooks(&mut hook_ctx, &output).await?;
                 if let Some(ref tx) = event_tx {
                     let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
                 }
@@ -662,7 +611,7 @@ impl Agent {
             }
 
             messages.push(response.message.clone());
-            self.memory.add_async(response.message.clone()).await?;
+            self.messages.push(response.message.clone());
 
             if let Some(ref tx) = event_tx {
                 let _ = tx.send(AgentEvent::MessageAdded { message: response.message.clone() }).await;
@@ -671,7 +620,6 @@ impl Agent {
             match response.finish_reason {
                 FinishReason::Stop => {
                     let output = Output::success(task.id, response.message.content);
-                    self.hooks.run_post_hooks(&mut hook_ctx, &output).await?;
                     if let Some(ref tx) = event_tx {
                         let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
                     }
@@ -681,15 +629,6 @@ impl Agent {
                 FinishReason::ToolCalls => {
                     if let Some(tool_calls) = &response.message.tool_calls {
                         for tool_call in tool_calls {
-                            let before_result = self.hooks.run_tool_before(&hook_ctx, tool_call).await?;
-                            if before_result.should_abort() {
-                                let output = Output::failure(task.id, "Aborted by tool hook".to_string());
-                                if let Some(ref tx) = event_tx {
-                                    let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
-                                }
-                                return Ok(output);
-                            }
-
                             // -- Approval policy check --
                             // Look up whether this tool is read-only from the
                             // collected definitions so we can decide whether
@@ -760,16 +699,9 @@ impl Agent {
                                 self.execute_tool_call(tool_call),
                             ).await {
                                 Ok(r) => r,
-                                Err(_) => Err(crate::Error::Timeout { duration_ms: tool_timeout_ms }),
+                                Err(_) => Err(crate::error::timeout(tool_timeout_ms)),
                             };
                             let success = result.is_ok();
-
-                            let result_value = match &result {
-                                Ok(v) => v.clone(),
-                                Err(e) => serde_json::json!({"error": e.to_string()}),
-                            };
-
-                            self.hooks.run_tool_after(&hook_ctx, tool_call, &result_value).await?;
 
                             let tool_msg = Message {
                                 role: Role::Tool,
@@ -783,7 +715,7 @@ impl Agent {
                             };
 
                             messages.push(tool_msg.clone());
-                            self.memory.add_async(tool_msg.clone()).await?;
+                            self.messages.push(tool_msg.clone());
 
                             if let Some(ref tx) = event_tx {
                                 let _ = tx.send(AgentEvent::ToolCallCompleted {
@@ -798,7 +730,6 @@ impl Agent {
 
                 FinishReason::Length => {
                     let output = Output::failure(task.id, "Response too long".to_string());
-                    self.hooks.run_post_hooks(&mut hook_ctx, &output).await?;
                     if let Some(ref tx) = event_tx {
                         let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
                     }
@@ -807,7 +738,6 @@ impl Agent {
 
                 FinishReason::ContentFilter => {
                     let output = Output::failure(task.id, "Content filtered".to_string());
-                    self.hooks.run_post_hooks(&mut hook_ctx, &output).await?;
                     if let Some(ref tx) = event_tx {
                         let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
                     }
@@ -884,10 +814,7 @@ impl Agent {
         let paused_ctx = match self.paused_context.take() {
             Some(ctx) => ctx,
             None => {
-                return Err(crate::Error::Agent {
-                    message: "Cannot continue: agent is not paused".to_string(),
-                    source: None,
-                });
+                return Err(crate::error::agent("Cannot continue: agent is not paused"));
             }
         };
 
@@ -912,7 +839,7 @@ impl Agent {
 
         let mut messages = paused_ctx.messages;
         messages.push(user_response_msg.clone());
-        self.memory.add_async(user_response_msg).await?;
+        self.messages.push(user_response_msg);
 
         let mut iterations = paused_ctx.iterations;
 
@@ -953,7 +880,7 @@ impl Agent {
             }
 
             messages.push(response.message.clone());
-            self.memory.add_async(response.message.clone()).await?;
+            self.messages.push(response.message.clone());
 
             match response.finish_reason {
                 FinishReason::Stop => {
@@ -991,7 +918,7 @@ impl Agent {
                                 self.execute_tool_call(tool_call),
                             ).await {
                                 Ok(r) => r,
-                                Err(_) => Err(crate::Error::Timeout { duration_ms: tool_timeout_ms }),
+                                Err(_) => Err(crate::error::timeout(tool_timeout_ms)),
                             };
                             let success = result.is_ok();
 
@@ -1007,7 +934,7 @@ impl Agent {
                             };
 
                             messages.push(tool_msg.clone());
-                            self.memory.add_async(tool_msg).await?;
+                            self.messages.push(tool_msg);
 
                             if let Some(ref tx) = event_tx {
                                 let _ = tx
@@ -1041,18 +968,5 @@ impl Agent {
 
             iterations += 1;
         }
-    }
-
-    pub fn create_session(&self) -> AgentSession {
-        let mut session = AgentSession::new(
-            self.session_id
-                .clone()
-                .unwrap_or_else(|| crate::new_id().to_string()),
-        );
-        session = session.with_agent(self.id.to_string());
-        if let Some(ref user_id) = self.user_id {
-            session = session.with_user(user_id);
-        }
-        session
     }
 }

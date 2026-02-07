@@ -348,20 +348,20 @@ impl ToolRegistry {
         let tool = self
             .tools
             .get(name)
-            .ok_or_else(|| crate::Error::ToolNotFound(name.to_string()))?;
+            .ok_or_else(|| crate::error::not_found(format!("Tool not found: {}", name)))?;
 
         tool.execute(params, ctx).await
     }
 
     pub async fn execute_with_timeout(&self, name: &str, params: Value, ctx: &ToolContext) -> Result<Value> {
         let tool = self.tools.get(name)
-            .ok_or_else(|| crate::Error::ToolNotFound(name.to_string()))?;
+            .ok_or_else(|| crate::error::not_found(format!("Tool not found: {}", name)))?;
 
         let timeout = std::time::Duration::from_millis(tool.metadata().timeout_ms);
 
         match tokio::time::timeout(timeout, tool.execute(params, ctx)).await {
             Ok(result) => result,
-            Err(_) => Err(crate::Error::tool_named(
+            Err(_) => Err(crate::error::tool_named(
                 name,
                 format!("timed out after {}ms", tool.metadata().timeout_ms),
             )),

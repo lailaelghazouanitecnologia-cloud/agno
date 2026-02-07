@@ -187,7 +187,7 @@ impl Workspace {
         for entry in std::fs::read_dir(full_path.as_std_path())? {
             let entry = entry?;
             let path = Utf8PathBuf::try_from(entry.path())
-                .map_err(|e| crate::Error::Workspace(e.to_string()))?;
+                .map_err(|e| crate::error::workspace(e.to_string()))?;
 
             if !self.is_ignored(&path) {
                 files.push(path);

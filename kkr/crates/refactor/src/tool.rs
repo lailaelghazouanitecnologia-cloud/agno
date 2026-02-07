@@ -85,19 +85,19 @@ impl Tool for RefactorTool {
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> kkr_core::Result<Value> {
         let operation = params.get("operation")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| kkr_core::Error::tool_named("refactor", "missing 'operation' field"))?;
+            .ok_or_else(|| kkr_core::error::tool_named("refactor", "missing 'operation' field"))?;
 
         let mut engine = self.engine.lock()
-            .map_err(|e| kkr_core::Error::tool_named("refactor", format!("lock error: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool_named("refactor", format!("lock error: {}", e)))?;
 
         match operation {
             "rename" => {
                 let old_name = params.get("old_name")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| kkr_core::Error::tool_named("refactor", "missing 'old_name'"))?;
+                    .ok_or_else(|| kkr_core::error::tool_named("refactor", "missing 'old_name'"))?;
                 let new_name = params.get("new_name")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| kkr_core::Error::tool_named("refactor", "missing 'new_name'"))?;
+                    .ok_or_else(|| kkr_core::error::tool_named("refactor", "missing 'new_name'"))?;
 
                 let result = engine.apply_rename(old_name, new_name);
                 Ok(result_to_json(&result))
@@ -112,7 +112,7 @@ impl Tool for RefactorTool {
                     .unwrap_or_default();
 
                 engine.load_files(&files)
-                    .map_err(|e| kkr_core::Error::tool_named("refactor", format!("load error: {}", e)))?;
+                    .map_err(|e| kkr_core::error::tool_named("refactor", format!("load error: {}", e)))?;
 
                 Ok(serde_json::json!({
                     "loaded": files.len(),
@@ -122,7 +122,7 @@ impl Tool for RefactorTool {
             "get_content" => {
                 let path = params.get("path")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| kkr_core::Error::tool_named("refactor", "missing 'path'"))?;
+                    .ok_or_else(|| kkr_core::error::tool_named("refactor", "missing 'path'"))?;
 
                 let content = engine.get_content(std::path::Path::new(path));
                 Ok(serde_json::json!({
@@ -131,7 +131,7 @@ impl Tool for RefactorTool {
                 }))
             }
 
-            _ => Err(kkr_core::Error::tool_named(
+            _ => Err(kkr_core::error::tool_named(
                 "refactor",
                 format!("unknown operation: {}", operation),
             )),

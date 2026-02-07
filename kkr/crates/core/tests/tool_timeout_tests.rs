@@ -265,12 +265,8 @@ async fn test_execute_with_timeout_nonexistent_tool() {
 
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        kkr_core::Error::ToolNotFound(name) => {
-            assert_eq!(name, "nonexistent");
-        }
-        _ => panic!("Expected ToolNotFound, got {:?}", err),
-    }
+    assert_eq!(err.kind, kkr_core::ErrorKind::NotFound);
+    assert!(err.to_string().contains("nonexistent"));
 }
 
 // ---------------------------------------------------------------------------

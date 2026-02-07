@@ -297,7 +297,7 @@ impl McpServer {
             "resources/read" => self.handle_read_resource(request.params).await,
             "prompts/list" => self.handle_list_prompts().await,
             "prompts/get" => self.handle_get_prompt(request.params).await,
-            _ => Err(kkr_core::Error::Other(format!(
+            _ => Err(kkr_core::error::other(format!(
                 "Unknown method: {}",
                 request.method
             ))),
@@ -374,17 +374,17 @@ impl McpServer {
     }
 
     async fn handle_call_tool(&self, params: Option<serde_json::Value>) -> Result<serde_json::Value> {
-        let params = params.ok_or_else(|| kkr_core::Error::Other("Missing params".into()))?;
+        let params = params.ok_or_else(|| kkr_core::error::other("Missing params"))?;
         let name = params["name"]
             .as_str()
-            .ok_or_else(|| kkr_core::Error::Other("Missing tool name".into()))?;
+            .ok_or_else(|| kkr_core::error::other("Missing tool name"))?;
         let arguments = params.get("arguments").cloned().unwrap_or(serde_json::json!({}));
 
         let tools = self.tools.read().await;
         let tool = tools
             .iter()
             .find(|t| t.name() == name)
-            .ok_or_else(|| kkr_core::Error::Other(format!("Tool not found: {}", name)))?;
+            .ok_or_else(|| kkr_core::error::other(format!("Tool not found: {}", name)))?;
 
         let result = tool.call(arguments).await?;
         Ok(serde_json::to_value(result)?)
@@ -406,16 +406,16 @@ impl McpServer {
     }
 
     async fn handle_read_resource(&self, params: Option<serde_json::Value>) -> Result<serde_json::Value> {
-        let params = params.ok_or_else(|| kkr_core::Error::Other("Missing params".into()))?;
+        let params = params.ok_or_else(|| kkr_core::error::other("Missing params"))?;
         let uri = params["uri"]
             .as_str()
-            .ok_or_else(|| kkr_core::Error::Other("Missing resource uri".into()))?;
+            .ok_or_else(|| kkr_core::error::other("Missing resource uri"))?;
 
         let resources = self.resources.read().await;
         let resource = resources
             .iter()
             .find(|r| r.uri() == uri)
-            .ok_or_else(|| kkr_core::Error::Other(format!("Resource not found: {}", uri)))?;
+            .ok_or_else(|| kkr_core::error::other(format!("Resource not found: {}", uri)))?;
 
         let content = resource.read().await?;
         Ok(serde_json::json!({ "contents": [content] }))
@@ -436,10 +436,10 @@ impl McpServer {
     }
 
     async fn handle_get_prompt(&self, params: Option<serde_json::Value>) -> Result<serde_json::Value> {
-        let params = params.ok_or_else(|| kkr_core::Error::Other("Missing params".into()))?;
+        let params = params.ok_or_else(|| kkr_core::error::other("Missing params"))?;
         let name = params["name"]
             .as_str()
-            .ok_or_else(|| kkr_core::Error::Other("Missing prompt name".into()))?;
+            .ok_or_else(|| kkr_core::error::other("Missing prompt name"))?;
 
         let arguments: HashMap<String, String> = params
             .get("arguments")
@@ -450,7 +450,7 @@ impl McpServer {
         let prompt = prompts
             .iter()
             .find(|p| p.name() == name)
-            .ok_or_else(|| kkr_core::Error::Other(format!("Prompt not found: {}", name)))?;
+            .ok_or_else(|| kkr_core::error::other(format!("Prompt not found: {}", name)))?;
 
         let messages = prompt.get(arguments).await?;
         Ok(serde_json::json!({ "messages": messages }))
@@ -511,7 +511,7 @@ impl McpClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|e| kkr_core::Error::Other(format!("Failed to spawn MCP server: {}", e)))?;
+            .map_err(|e| kkr_core::error::other(format!("Failed to spawn MCP server: {}", e)))?;
 
         let stdout = child.stdout.take().unwrap();
         let pending: Arc<Mutex<HashMap<String, tokio::sync::mpsc::Sender<JsonRpcResponse>>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -581,10 +581,10 @@ impl McpClient {
         let response = rx
             .recv()
             .await
-            .ok_or_else(|| kkr_core::Error::Other("No response received".into()))?;
+            .ok_or_else(|| kkr_core::error::other("No response received"))?;
 
         if let Some(error) = response.error {
-            return Err(kkr_core::Error::Other(format!(
+            return Err(kkr_core::error::other(format!(
                 "MCP error {}: {}",
                 error.code, error.message
             )));
@@ -592,7 +592,7 @@ impl McpClient {
 
         response
             .result
-            .ok_or_else(|| kkr_core::Error::Other("Empty response".into()))
+            .ok_or_else(|| kkr_core::error::other("Empty response"))
     }
 
     pub async fn initialize(&self, client_name: &str, client_version: &str) -> Result<InitializeResult> {

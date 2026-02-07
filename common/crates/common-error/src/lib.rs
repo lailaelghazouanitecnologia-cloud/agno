@@ -64,6 +64,9 @@ pub enum ErrorKind {
     AnalysisError,
     UnsupportedLanguage,
 
+    // Security
+    Security,
+
     // General
     Internal,
     NotImplemented,

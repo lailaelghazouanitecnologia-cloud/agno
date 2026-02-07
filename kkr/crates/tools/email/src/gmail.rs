@@ -36,9 +36,9 @@ impl GmailCredentials {
 
     pub fn from_env() -> Result<Self> {
         let client_id = env::var("GMAIL_CLIENT_ID")
-            .map_err(|_| kkr_core::Error::Config("GMAIL_CLIENT_ID not set".into()))?;
+            .map_err(|_| kkr_core::error::config("GMAIL_CLIENT_ID not set"))?;
         let client_secret = env::var("GMAIL_CLIENT_SECRET")
-            .map_err(|_| kkr_core::Error::Config("GMAIL_CLIENT_SECRET not set".into()))?;
+            .map_err(|_| kkr_core::error::config("GMAIL_CLIENT_SECRET not set"))?;
 
         let mut creds = Self::new(client_id, client_secret);
         creds.access_token = env::var("GMAIL_ACCESS_TOKEN").ok();
@@ -107,7 +107,7 @@ impl GmailClient {
     async fn refresh_access_token(&self) -> Result<String> {
         let creds = self.credentials.read().await;
         let refresh_token = creds.refresh_token.clone().ok_or_else(|| {
-            kkr_core::Error::tool("No refresh token available".to_string())
+            kkr_core::error::tool("No refresh token available".to_string())
         })?;
         let client_id = creds.client_id.clone();
         let client_secret = creds.client_secret.clone();
@@ -124,16 +124,16 @@ impl GmailClient {
             ])
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Token refresh failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Token refresh failed: {}", e)))?;
 
         let token_data: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse token response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse token response: {}", e)))?;
 
         let access_token = token_data["access_token"]
             .as_str()
-            .ok_or_else(|| kkr_core::Error::tool("No access token in response".to_string()))?
+            .ok_or_else(|| kkr_core::error::tool("No access token in response".to_string()))?
             .to_string();
 
         let expires_in = token_data["expires_in"].as_i64().unwrap_or(3600);
@@ -174,12 +174,12 @@ impl GmailClient {
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to list messages: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to list messages: {}", e)))?;
 
         let data: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse response: {}", e)))?;
 
         let message_ids: Vec<String> = data["messages"]
             .as_array()
@@ -212,12 +212,12 @@ impl GmailClient {
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to get message: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to get message: {}", e)))?;
 
         let data: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse message: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse message: {}", e)))?;
 
         parse_gmail_message(data)
     }
@@ -249,17 +249,17 @@ impl GmailClient {
             .json(&json!({ "raw": encoded }))
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to send message: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to send message: {}", e)))?;
 
         let data: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse response: {}", e)))?;
 
         data["id"]
             .as_str()
             .map(|s| s.to_string())
-            .ok_or_else(|| kkr_core::Error::tool("No message ID in response".to_string()))
+            .ok_or_else(|| kkr_core::error::tool("No message ID in response".to_string()))
     }
 
     pub async fn create_draft(
@@ -291,17 +291,17 @@ impl GmailClient {
             }))
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to create draft: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to create draft: {}", e)))?;
 
         let data: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse response: {}", e)))?;
 
         data["id"]
             .as_str()
             .map(|s| s.to_string())
-            .ok_or_else(|| kkr_core::Error::tool("No draft ID in response".to_string()))
+            .ok_or_else(|| kkr_core::error::tool("No draft ID in response".to_string()))
     }
 
     pub async fn list_labels(&self) -> Result<Vec<GmailLabel>> {
@@ -315,12 +315,12 @@ impl GmailClient {
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to list labels: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to list labels: {}", e)))?;
 
         let data: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse response: {}", e)))?;
 
         let labels: Vec<GmailLabel> = data["labels"]
             .as_array()
@@ -361,7 +361,7 @@ impl GmailClient {
             }))
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to modify labels: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to modify labels: {}", e)))?;
 
         Ok(())
     }
@@ -379,7 +379,7 @@ impl GmailClient {
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to trash message: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to trash message: {}", e)))?;
 
         Ok(())
     }
@@ -424,17 +424,17 @@ impl GmailClient {
             }))
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to send reply: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to send reply: {}", e)))?;
 
         let data: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse response: {}", e)))?;
 
         data["id"]
             .as_str()
             .map(|s| s.to_string())
-            .ok_or_else(|| kkr_core::Error::tool("No message ID in response".to_string()))
+            .ok_or_else(|| kkr_core::error::tool("No message ID in response".to_string()))
     }
 
     /// Get all messages in a thread
@@ -452,12 +452,12 @@ impl GmailClient {
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to get thread: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to get thread: {}", e)))?;
 
         let data: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse thread: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse thread: {}", e)))?;
 
         let messages = data["messages"]
             .as_array()
@@ -487,12 +487,12 @@ impl GmailClient {
             }))
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to create label: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to create label: {}", e)))?;
 
         let data: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse response: {}", e)))?;
 
         Ok(GmailLabel {
             id: data["id"].as_str().unwrap_or("").to_string(),
@@ -516,10 +516,10 @@ impl GmailClient {
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to delete label: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to delete label: {}", e)))?;
 
         if !response.status().is_success() {
-            return Err(kkr_core::Error::tool(format!(
+            return Err(kkr_core::error::tool(format!(
                 "Failed to delete label: {}",
                 response.status()
             )));
@@ -543,20 +543,20 @@ impl GmailClient {
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to get attachment: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to get attachment: {}", e)))?;
 
         let data: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse attachment: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse attachment: {}", e)))?;
 
         let encoded = data["data"]
             .as_str()
-            .ok_or_else(|| kkr_core::Error::tool("No attachment data".to_string()))?;
+            .ok_or_else(|| kkr_core::error::tool("No attachment data".to_string()))?;
 
         URL_SAFE
             .decode(encoded)
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to decode attachment: {}", e)))
+            .map_err(|e| kkr_core::error::tool(format!("Failed to decode attachment: {}", e)))
     }
 }
 
@@ -777,7 +777,7 @@ impl Tool for GmailReadTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: GmailReadParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         let labels: Option<Vec<&str>> = params
             .labels
@@ -864,7 +864,7 @@ impl Tool for GmailSendTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: GmailSendParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         let message_id = self
             .client
@@ -938,7 +938,7 @@ impl Tool for GmailDraftTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: GmailSendParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         let draft_id = self
             .client
@@ -1069,7 +1069,7 @@ impl Tool for GmailModifyLabelsTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: GmailModifyLabelsParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         let add_labels: Vec<&str> = params.add_labels.iter().map(|s| s.as_str()).collect();
         let remove_labels: Vec<&str> = params.remove_labels.iter().map(|s| s.as_str()).collect();
@@ -1137,7 +1137,7 @@ impl Tool for GmailTrashTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: GmailTrashParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         self.client.trash_message(&params.message_id).await?;
 
@@ -1221,7 +1221,7 @@ impl Tool for GmailReplyTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: GmailReplyParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         // Get original message to find the sender
         let original = self.client.get_message(&params.message_id).await?;
@@ -1299,7 +1299,7 @@ impl Tool for GmailThreadTool {
         let thread_id = params
             .get("thread_id")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| kkr_core::Error::tool("Missing thread_id".to_string()))?;
+            .ok_or_else(|| kkr_core::error::tool("Missing thread_id".to_string()))?;
 
         let messages = self.client.get_thread(thread_id).await?;
 
@@ -1364,7 +1364,7 @@ impl Tool for GmailCreateLabelTool {
         let name = params
             .get("name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| kkr_core::Error::tool("Missing name".to_string()))?;
+            .ok_or_else(|| kkr_core::error::tool("Missing name".to_string()))?;
 
         let label = self.client.create_label(name).await?;
 
@@ -1428,7 +1428,7 @@ impl Tool for GmailDeleteLabelTool {
         let label_id = params
             .get("label_id")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| kkr_core::Error::tool("Missing label_id".to_string()))?;
+            .ok_or_else(|| kkr_core::error::tool("Missing label_id".to_string()))?;
 
         self.client.delete_label(label_id).await?;
 
@@ -1496,12 +1496,12 @@ impl Tool for GmailAttachmentTool {
         let message_id = params
             .get("message_id")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| kkr_core::Error::tool("Missing message_id".to_string()))?;
+            .ok_or_else(|| kkr_core::error::tool("Missing message_id".to_string()))?;
 
         let attachment_id = params
             .get("attachment_id")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| kkr_core::Error::tool("Missing attachment_id".to_string()))?;
+            .ok_or_else(|| kkr_core::error::tool("Missing attachment_id".to_string()))?;
 
         let data = self.client.get_attachment(message_id, attachment_id).await?;
 

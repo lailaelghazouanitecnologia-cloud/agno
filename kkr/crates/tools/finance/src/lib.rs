@@ -69,7 +69,7 @@ impl Tool for YahooQuoteTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: QuoteParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         let symbols = params.symbols.join(",");
         let url = format!(
@@ -83,16 +83,16 @@ impl Tool for YahooQuoteTool {
             .header("User-Agent", "Mozilla/5.0")
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Request failed: {}", e)))?;
 
         let status = response.status();
         let body: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse response: {}", e)))?;
 
         if !status.is_success() {
-            return Err(kkr_core::Error::tool(format!("Yahoo API error: {}", body)));
+            return Err(kkr_core::error::tool(format!("Yahoo API error: {}", body)));
         }
 
         let quotes = body["quoteResponse"]["result"]
@@ -206,7 +206,7 @@ impl Tool for YahooHistoryTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: HistoryParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         let url = format!(
             "https://query1.finance.yahoo.com/v8/finance/chart/{}?range={}&interval={}",
@@ -219,16 +219,16 @@ impl Tool for YahooHistoryTool {
             .header("User-Agent", "Mozilla/5.0")
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Request failed: {}", e)))?;
 
         let status = response.status();
         let body: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse response: {}", e)))?;
 
         if !status.is_success() {
-            return Err(kkr_core::Error::tool(format!("Yahoo API error: {}", body)));
+            return Err(kkr_core::error::tool(format!("Yahoo API error: {}", body)));
         }
 
         let result = &body["chart"]["result"][0];
@@ -342,7 +342,7 @@ impl Tool for CryptoQuoteTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: CryptoParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         let ids = params.symbols.join(",");
         let url = format!(
@@ -356,16 +356,16 @@ impl Tool for CryptoQuoteTool {
             .header("User-Agent", "KKR/1.0")
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Request failed: {}", e)))?;
 
         let status = response.status();
         let body: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse response: {}", e)))?;
 
         if !status.is_success() {
-            return Err(kkr_core::Error::tool(format!("CoinGecko API error: {}", body)));
+            return Err(kkr_core::error::tool(format!("CoinGecko API error: {}", body)));
         }
 
         let quotes: Vec<Value> = body
@@ -479,10 +479,10 @@ impl Tool for AlphaVantageQuoteTool {
             .api_key
             .as_ref()
             .or(env_key.as_ref())
-            .ok_or_else(|| kkr_core::Error::tool("ALPHAVANTAGE_API_KEY not set".to_string()))?;
+            .ok_or_else(|| kkr_core::error::tool("ALPHAVANTAGE_API_KEY not set".to_string()))?;
 
         let params: AlphaVantageParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         let function = params.function.unwrap_or_else(|| "GLOBAL_QUOTE".to_string());
 
@@ -496,20 +496,20 @@ impl Tool for AlphaVantageQuoteTool {
             .get(&url)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Request failed: {}", e)))?;
 
         let status = response.status();
         let body: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse response: {}", e)))?;
 
         if !status.is_success() {
-            return Err(kkr_core::Error::tool(format!("Alpha Vantage API error: {}", body)));
+            return Err(kkr_core::error::tool(format!("Alpha Vantage API error: {}", body)));
         }
 
         if body.get("Error Message").is_some() {
-            return Err(kkr_core::Error::tool(format!("Alpha Vantage error: {}", body["Error Message"])));
+            return Err(kkr_core::error::tool(format!("Alpha Vantage error: {}", body["Error Message"])));
         }
 
         Ok(json!({
@@ -585,7 +585,7 @@ impl Tool for ForexQuoteTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: ForexParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         let symbols_param = params
             .symbols
@@ -603,16 +603,16 @@ impl Tool for ForexQuoteTool {
             .get(&url)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Request failed: {}", e)))?;
 
         let status = response.status();
         let body: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse response: {}", e)))?;
 
         if !status.is_success() {
-            return Err(kkr_core::Error::tool(format!("Forex API error: {}", body)));
+            return Err(kkr_core::error::tool(format!("Forex API error: {}", body)));
         }
 
         Ok(json!({

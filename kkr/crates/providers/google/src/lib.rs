@@ -96,7 +96,7 @@ impl GoogleConfig {
     pub fn from_env() -> Result<Self> {
         let api_key = env::var("GOOGLE_API_KEY")
             .or_else(|_| env::var("GEMINI_API_KEY"))
-            .map_err(|_| kkr_core::Error::Config("GOOGLE_API_KEY not set".into()))?;
+            .map_err(|_| kkr_core::error::config("GOOGLE_API_KEY not set"))?;
         Ok(Self::new(api_key))
     }
 
@@ -289,30 +289,30 @@ impl Provider for Google {
             .json(&request)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::provider("google",format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::provider("google",format!("Request failed: {}", e)))?;
 
         let status = response.status();
         let body = response
             .text()
             .await
-            .map_err(|e| kkr_core::Error::provider("google",format!("Failed to read response: {}", e)))?;
+            .map_err(|e| kkr_core::error::provider("google",format!("Failed to read response: {}", e)))?;
 
         if !status.is_success() {
-            return Err(kkr_core::Error::provider("google",format!(
+            return Err(kkr_core::error::provider("google",format!(
                 "API error ({}): {}",
                 status, body
             )));
         }
 
         let api_response: ApiResponse = serde_json::from_str(&body).map_err(|e| {
-            kkr_core::Error::provider("google",format!("Failed to parse response: {} - {}", e, body))
+            kkr_core::error::provider("google",format!("Failed to parse response: {} - {}", e, body))
         })?;
 
         let candidate = api_response
             .candidates
             .into_iter()
             .next()
-            .ok_or_else(|| kkr_core::Error::provider("google", "No candidates in response"))?;
+            .ok_or_else(|| kkr_core::error::provider("google", "No candidates in response"))?;
 
         let mut content = String::new();
         let mut tool_calls = Vec::new();

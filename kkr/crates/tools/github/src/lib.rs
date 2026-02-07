@@ -79,14 +79,14 @@ impl Tool for GitHubRepoTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: RepoParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         let url = format!("{}/repos/{}/{}", GITHUB_API, params.owner, params.repo);
 
         let client = Client::builder()
             .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
             .build()
-            .map_err(|e| kkr_core::Error::tool(format!("Client error: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Client error: {}", e)))?;
 
         let mut request = client
             .get(&url)
@@ -100,12 +100,12 @@ impl Tool for GitHubRepoTool {
         let response = request
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Request failed: {}", e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(kkr_core::Error::tool(format!(
+            return Err(kkr_core::error::tool(format!(
                 "GitHub API error {}: {}",
                 status, text
             )));
@@ -114,7 +114,7 @@ impl Tool for GitHubRepoTool {
         let result: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse response: {}", e)))?;
 
         Ok(json!({
             "name": result["name"],
@@ -217,10 +217,10 @@ impl Tool for GitHubSearchCodeTool {
         let token = self
             .token
             .as_ref()
-            .ok_or_else(|| kkr_core::Error::tool("GITHUB_TOKEN required for code search".to_string()))?;
+            .ok_or_else(|| kkr_core::error::tool("GITHUB_TOKEN required for code search".to_string()))?;
 
         let params: SearchCodeParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         let mut query = params.query.clone();
         if let Some(ref lang) = params.language {
@@ -241,7 +241,7 @@ impl Tool for GitHubSearchCodeTool {
         let client = Client::builder()
             .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
             .build()
-            .map_err(|e| kkr_core::Error::tool(format!("Client error: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Client error: {}", e)))?;
 
         let response = client
             .get(&url)
@@ -250,12 +250,12 @@ impl Tool for GitHubSearchCodeTool {
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Request failed: {}", e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(kkr_core::Error::tool(format!(
+            return Err(kkr_core::error::tool(format!(
                 "GitHub API error {}: {}",
                 status, text
             )));
@@ -264,7 +264,7 @@ impl Tool for GitHubSearchCodeTool {
         let result: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse response: {}", e)))?;
 
         let items: Vec<Value> = result["items"]
             .as_array()
@@ -368,7 +368,7 @@ impl Tool for GitHubSearchReposTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: SearchReposParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         let mut query = params.query.clone();
         if let Some(ref lang) = params.language {
@@ -389,7 +389,7 @@ impl Tool for GitHubSearchReposTool {
         let client = Client::builder()
             .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
             .build()
-            .map_err(|e| kkr_core::Error::tool(format!("Client error: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Client error: {}", e)))?;
 
         let mut request = client
             .get(&url)
@@ -403,12 +403,12 @@ impl Tool for GitHubSearchReposTool {
         let response = request
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Request failed: {}", e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(kkr_core::Error::tool(format!(
+            return Err(kkr_core::error::tool(format!(
                 "GitHub API error {}: {}",
                 status, text
             )));
@@ -417,7 +417,7 @@ impl Tool for GitHubSearchReposTool {
         let result: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse response: {}", e)))?;
 
         let items: Vec<Value> = result["items"]
             .as_array()
@@ -528,7 +528,7 @@ impl Tool for GitHubIssuesTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: IssuesParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         let state = params.state.unwrap_or_else(|| "open".to_string());
         let per_page = params.per_page.unwrap_or(30).min(100);
@@ -545,7 +545,7 @@ impl Tool for GitHubIssuesTool {
         let client = Client::builder()
             .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
             .build()
-            .map_err(|e| kkr_core::Error::tool(format!("Client error: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Client error: {}", e)))?;
 
         let mut request = client
             .get(&url)
@@ -559,12 +559,12 @@ impl Tool for GitHubIssuesTool {
         let response = request
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Request failed: {}", e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(kkr_core::Error::tool(format!(
+            return Err(kkr_core::error::tool(format!(
                 "GitHub API error {}: {}",
                 status, text
             )));
@@ -573,7 +573,7 @@ impl Tool for GitHubIssuesTool {
         let result: Vec<Value> = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse response: {}", e)))?;
 
         let issues: Vec<Value> = result
             .iter()
@@ -677,7 +677,7 @@ impl Tool for GitHubFileContentTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<Value> {
         let params: FileContentParams = serde_json::from_value(params)
-            .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Invalid parameters: {}", e)))?;
 
         let mut url = format!(
             "{}/repos/{}/{}/contents/{}",
@@ -691,7 +691,7 @@ impl Tool for GitHubFileContentTool {
         let client = Client::builder()
             .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
             .build()
-            .map_err(|e| kkr_core::Error::tool(format!("Client error: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Client error: {}", e)))?;
 
         let mut request = client
             .get(&url)
@@ -705,12 +705,12 @@ impl Tool for GitHubFileContentTool {
         let response = request
             .send()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Request failed: {}", e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(kkr_core::Error::tool(format!(
+            return Err(kkr_core::error::tool(format!(
                 "GitHub API error {}: {}",
                 status, text
             )));
@@ -719,7 +719,7 @@ impl Tool for GitHubFileContentTool {
         let result: Value = response
             .json()
             .await
-            .map_err(|e| kkr_core::Error::tool(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| kkr_core::error::tool(format!("Failed to parse response: {}", e)))?;
 
         let content = result["content"]
             .as_str()

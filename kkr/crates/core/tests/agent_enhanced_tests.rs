@@ -401,13 +401,4 @@ mod session_state_tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_agent_create_session() {
-        let agent = create_test_agent()
-            .with_session("sess_1")
-            .with_user("user_1");
-
-        let session = agent.create_session();
-        assert_eq!(session.session_id, "sess_1");
-    }
 }

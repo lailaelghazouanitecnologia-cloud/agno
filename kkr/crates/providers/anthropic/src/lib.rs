@@ -55,7 +55,7 @@ impl AnthropicConfig {
 
     pub fn from_env() -> Result<Self> {
         let api_key = env::var("ANTHROPIC_API_KEY")
-            .map_err(|_| kkr_core::Error::Config("ANTHROPIC_API_KEY not set".into()))?;
+            .map_err(|_| kkr_core::error::config("ANTHROPIC_API_KEY not set"))?;
         Ok(Self::new(api_key))
     }
 
@@ -213,23 +213,23 @@ impl Provider for Anthropic {
             .json(&request)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::provider("anthropic",format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::provider("anthropic",format!("Request failed: {}", e)))?;
 
         let status = response.status();
         let body = response
             .text()
             .await
-            .map_err(|e| kkr_core::Error::provider("anthropic",format!("Failed to read response: {}", e)))?;
+            .map_err(|e| kkr_core::error::provider("anthropic",format!("Failed to read response: {}", e)))?;
 
         if !status.is_success() {
-            return Err(kkr_core::Error::provider("anthropic",format!(
+            return Err(kkr_core::error::provider("anthropic",format!(
                 "API error ({}): {}",
                 status, body
             )));
         }
 
         let api_response: ApiResponse = serde_json::from_str(&body)
-            .map_err(|e| kkr_core::Error::provider("anthropic",format!("Failed to parse response: {} - {}", e, body)))?;
+            .map_err(|e| kkr_core::error::provider("anthropic",format!("Failed to parse response: {} - {}", e, body)))?;
 
         // Convert response to our format
         let mut content = String::new();

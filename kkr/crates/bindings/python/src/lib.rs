@@ -174,7 +174,7 @@ impl PyToolCall {
 
 #[pyclass]
 pub struct PyMemory {
-    inner: Arc<RwLock<kkr_core::memory::Memory>>,
+    inner: Arc<RwLock<Vec<kkr_core::Message>>>,
 }
 
 #[pymethods]
@@ -182,7 +182,7 @@ impl PyMemory {
     #[new]
     fn new() -> Self {
         Self {
-            inner: Arc::new(RwLock::new(kkr_core::memory::Memory::new())),
+            inner: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -190,7 +190,7 @@ impl PyMemory {
     fn add(&self, message: PyMessage) -> PyResult<()> {
         let mut inner = self.inner.write()
             .map_err(|e| PyRuntimeError::new_err(format!("Lock error: {}", e)))?;
-        inner.add(message.into());
+        inner.push(message.into());
         Ok(())
     }
 
@@ -198,14 +198,15 @@ impl PyMemory {
     fn messages(&self) -> PyResult<Vec<PyMessage>> {
         let inner = self.inner.read()
             .map_err(|e| PyRuntimeError::new_err(format!("Lock error: {}", e)))?;
-        Ok(inner.messages().into_iter().map(|m| m.clone().into()).collect())
+        Ok(inner.iter().map(|m| m.clone().into()).collect())
     }
 
     /// Get last N messages
     fn last_n(&self, n: usize) -> PyResult<Vec<PyMessage>> {
         let inner = self.inner.read()
             .map_err(|e| PyRuntimeError::new_err(format!("Lock error: {}", e)))?;
-        Ok(inner.last_n(n).into_iter().map(|m| m.clone().into()).collect())
+        let skip = inner.len().saturating_sub(n);
+        Ok(inner.iter().skip(skip).map(|m| m.clone().into()).collect())
     }
 
     /// Clear all messages
@@ -287,7 +288,7 @@ impl PySearchResult {
 
 #[pyclass]
 pub struct PyKnowledge {
-    inner: Arc<RwLock<kkr_core::knowledge::Knowledge>>,
+    inner: Arc<RwLock<Vec<PyDocument>>>,
 }
 
 #[pymethods]
@@ -295,7 +296,7 @@ impl PyKnowledge {
     #[new]
     fn new() -> Self {
         Self {
-            inner: Arc::new(RwLock::new(kkr_core::knowledge::Knowledge::new())),
+            inner: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -303,29 +304,33 @@ impl PyKnowledge {
     fn add(&self, content: String) -> PyResult<String> {
         let mut inner = self.inner.write()
             .map_err(|e| PyRuntimeError::new_err(format!("Lock error: {}", e)))?;
-        let doc = kkr_core::knowledge::Document::new(content);
-        let id = doc.id.to_string();
-        inner.add(doc);
+        let doc = PyDocument::new(content, None);
+        let id = doc.id.clone();
+        inner.push(doc);
         Ok(id)
     }
 
-    /// Search by text
+    /// Search by text (simple substring matching)
     fn search(&self, query: String) -> PyResult<Vec<PySearchResult>> {
         let inner = self.inner.read()
             .map_err(|e| PyRuntimeError::new_err(format!("Lock error: {}", e)))?;
-        let results = inner.search_text(&query);
-        Ok(results.into_iter().map(|r| {
-            PySearchResult {
-                document: PyDocument {
-                    id: r.document.id.to_string(),
-                    content: r.document.content,
-                    metadata: r.document.metadata.into_iter()
-                        .map(|(k, v)| (k, v.to_string()))
-                        .collect(),
-                },
-                score: r.score,
-            }
-        }).collect())
+        let query_lower = query.to_lowercase();
+        let results: Vec<PySearchResult> = inner.iter()
+            .filter_map(|doc| {
+                let content_lower = doc.content.to_lowercase();
+                if content_lower.contains(&query_lower) {
+                    // Simple relevance score: ratio of query length to content length
+                    let score = query_lower.len() as f32 / content_lower.len().max(1) as f32;
+                    Some(PySearchResult {
+                        document: doc.clone(),
+                        score: score.min(1.0),
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+        Ok(results)
     }
 
     /// Number of documents

@@ -55,7 +55,7 @@ impl MistralConfig {
 
     pub fn from_env() -> Result<Self> {
         let api_key = env::var("MISTRAL_API_KEY")
-            .map_err(|_| kkr_core::Error::Config("MISTRAL_API_KEY not set".into()))?;
+            .map_err(|_| kkr_core::error::config("MISTRAL_API_KEY not set"))?;
         Ok(Self::new(api_key))
     }
 
@@ -187,30 +187,30 @@ impl Provider for Mistral {
             .json(&request)
             .send()
             .await
-            .map_err(|e| kkr_core::Error::provider("mistral",format!("Request failed: {}", e)))?;
+            .map_err(|e| kkr_core::error::provider("mistral",format!("Request failed: {}", e)))?;
 
         let status = response.status();
         let body = response
             .text()
             .await
-            .map_err(|e| kkr_core::Error::provider("mistral",format!("Failed to read response: {}", e)))?;
+            .map_err(|e| kkr_core::error::provider("mistral",format!("Failed to read response: {}", e)))?;
 
         if !status.is_success() {
-            return Err(kkr_core::Error::provider("mistral",format!(
+            return Err(kkr_core::error::provider("mistral",format!(
                 "API error ({}): {}",
                 status, body
             )));
         }
 
         let api_response: ApiResponse = serde_json::from_str(&body).map_err(|e| {
-            kkr_core::Error::provider("mistral",format!("Failed to parse response: {} - {}", e, body))
+            kkr_core::error::provider("mistral",format!("Failed to parse response: {} - {}", e, body))
         })?;
 
         let choice = api_response
             .choices
             .into_iter()
             .next()
-            .ok_or_else(|| kkr_core::Error::provider("mistral", "No choices in response"))?;
+            .ok_or_else(|| kkr_core::error::provider("mistral", "No choices in response"))?;
 
         let tool_calls = choice.message.tool_calls.map(|tcs| {
             tcs.into_iter()

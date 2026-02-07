@@ -1,9 +1,6 @@
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 
-use crate::knowledge::Knowledge;
-use crate::memory::Memory;
-use crate::pipeline::{Pipeline, PipelineContext};
 use crate::tool::{Tool, ToolContext, ToolRegistry};
 use crate::types::{Id, Message, Role};
 use crate::workspace::Scope;
@@ -35,10 +32,8 @@ pub struct Capsule {
     pub id: Id,
     pub config: CapsuleConfig,
     pub scope: Scope,
-    pub memory: Memory,
-    pub knowledge: Knowledge,
+    pub messages: Vec<Message>,
     tools: ToolRegistry,
-    pipelines: Vec<Pipeline>,
 }
 
 impl Capsule {
@@ -51,10 +46,8 @@ impl Capsule {
             id: crate::new_id(),
             config,
             scope,
-            memory: Memory::new(),
-            knowledge: Knowledge::new(),
+            messages: Vec::new(),
             tools: ToolRegistry::new(),
-            pipelines: Vec::new(),
         }
     }
 
@@ -76,11 +69,6 @@ impl Capsule {
 
     pub fn register_tool(&mut self, tool: Box<dyn Tool>) {
         self.tools.register(tool);
-    }
-
-    pub fn add_pipeline(&mut self, pipeline: Pipeline) {
-        debug_assert!(!pipeline.name.is_empty(), "pipeline name must not be empty");
-        self.pipelines.push(pipeline);
     }
 
     pub fn tool_context(&self, workspace_root: Option<Utf8PathBuf>) -> ToolContext {
@@ -107,53 +95,14 @@ impl Capsule {
         self.tools.execute(name, params, &ctx).await
     }
 
-    /// Add a message to the capsule's memory (synchronous).
-    ///
-    /// WARNING: This method uses `futures::executor::block_on` internally via
-    /// `Memory::add()` and will panic if called from within an async runtime.
-    /// Use `add_to_memory_async()` instead when calling from async code.
-    pub fn add_to_memory(&mut self, message: Message) {
-        self.memory.add(message);
+    /// Add a message to the capsule's message history.
+    pub fn add_message(&mut self, message: Message) {
+        self.messages.push(message);
     }
 
-    /// Add a message to the capsule's memory (async-safe).
-    pub async fn add_to_memory_async(&mut self, message: Message) -> Result<()> {
-        self.memory.add_async(message).await
-    }
-
-    /// Retrieve the capsule's message history (synchronous).
-    ///
-    /// WARNING: This method uses `futures::executor::block_on` internally via
-    /// `Memory::messages()` and will panic if called from within an async runtime.
-    /// Use `history_async()` instead when calling from async code.
-    pub fn history(&self) -> Vec<Message> {
-        self.memory.messages()
-    }
-
-    /// Retrieve the capsule's message history (async-safe).
-    pub async fn history_async(&self) -> Result<Vec<Message>> {
-        self.memory.messages_async().await
-    }
-
-    pub fn add_knowledge(&mut self, doc: crate::knowledge::Document) {
-        self.knowledge.add(doc);
-    }
-
-    pub fn search_knowledge(&self, query: &str) -> Vec<crate::knowledge::SearchResult> {
-        debug_assert!(!query.is_empty(), "search query must not be empty");
-        self.knowledge.search_text(query)
-    }
-
-    pub async fn execute_pipeline(&self, name: &str, ctx: PipelineContext) -> Result<crate::pipeline::PipelineResult> {
-        debug_assert!(!name.is_empty(), "pipeline name must not be empty");
-
-        let pipeline = self
-            .pipelines
-            .iter()
-            .find(|p| p.name == name)
-            .ok_or_else(|| crate::Error::Capsule { message: format!("Pipeline not found: {}", name) })?;
-
-        pipeline.execute(ctx).await
+    /// Retrieve the capsule's message history.
+    pub fn history(&self) -> &[Message] {
+        &self.messages
     }
 
     pub fn system_message(&self) -> Message {
@@ -177,10 +126,6 @@ impl Capsule {
             tool_calls: None,
             tool_call_id: None,
         }
-    }
-
-    pub fn pipeline_count(&self) -> usize {
-        self.pipelines.len()
     }
 
     pub fn tool_count(&self) -> usize {

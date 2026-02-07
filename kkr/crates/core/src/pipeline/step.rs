@@ -45,6 +45,12 @@ pub trait Step: Send + Sync {
     fn estimated_duration_ms(&self) -> Option<u64> {
         None
     }
+
+    /// Optional timeout in milliseconds. If set, step execution will be
+    /// cancelled if it exceeds this duration.
+    fn timeout_ms(&self) -> Option<u64> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

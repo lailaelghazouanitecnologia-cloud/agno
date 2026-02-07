@@ -123,8 +123,14 @@ impl Executor {
         let handler = Arc::new(handler);
 
         loop {
+            // Check shutdown flag before processing next task
+            if *self.shutdown.read().await {
+                info!("Executor received shutdown signal, stopping execution loop");
+                return Ok(());
+            }
+
             let Some(mut entry) = self.queue.pop().await else {
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                 continue;
             };
 

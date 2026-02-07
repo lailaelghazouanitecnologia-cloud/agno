@@ -8,6 +8,69 @@ use tokio::process::Command;
 use kkr_core::tool::{Tool, ToolCategory, ToolContext, ToolMetadata, ToolSchema};
 use kkr_core::Result;
 
+/// Environment variable names that are dangerous to allow injection of.
+const BLOCKED_ENV_VARS: &[&str] = &[
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "DYLD_INSERT_LIBRARIES",
+    "BASH_ENV",
+    "ENV",
+    "PROMPT_COMMAND",
+    "SHELLOPTS",
+    "BASHOPTS",
+    "CDPATH",
+    "GLOBIGNORE",
+    "BASH_FUNC_",
+];
+
+/// Normalize a command for consistent pattern matching: trim + collapse whitespace.
+fn normalize_command(command: &str) -> String {
+    command.trim().split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Extract the base command name (first token, stripping any path prefix).
+fn extract_base_command(command: &str) -> &str {
+    let first_segment = command
+        .split(|c: char| matches!(c, '|' | ';' | '&' | '\n'))
+        .next()
+        .unwrap_or("")
+        .trim();
+    let cmd = first_segment.split_whitespace().next().unwrap_or("");
+    // Strip path prefix: /usr/bin/ls -> ls
+    cmd.rsplit('/').next().unwrap_or(cmd)
+}
+
+/// Check if a command contains shell chaining/injection operators outside of quotes.
+fn has_unquoted_shell_operators(command: &str) -> bool {
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut prev = '\0';
+    for c in command.chars() {
+        if prev != '\\' {
+            if c == '\'' && !in_double {
+                in_single = !in_single;
+            }
+            if c == '"' && !in_single {
+                in_double = !in_double;
+            }
+        }
+        if !in_single && !in_double && prev != '\\' {
+            if matches!(c, '|' | ';' | '`') {
+                return true;
+            }
+            if c == '(' && prev == '$' {
+                return true;
+            }
+            // & that isn't part of >&
+            if c == '&' && prev != '>' {
+                return true;
+            }
+        }
+        prev = c;
+    }
+    false
+}
+
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_MAX_OUTPUT_SIZE: usize = 1024 * 1024;
 
@@ -28,11 +91,19 @@ impl Default for ShellTool {
             blocked_patterns: vec![
                 "rm -rf /".to_string(),
                 "rm -rf /*".to_string(),
+                "rm -rf ~".to_string(),
                 ":(){:|:&};:".to_string(),
+                ":(){ :|:& };:".to_string(),
                 "mkfs".to_string(),
                 "dd if=/dev/zero".to_string(),
+                "dd if=/dev/random".to_string(),
+                "dd if=/dev/urandom".to_string(),
                 "> /dev/sda".to_string(),
+                "> /dev/nvme".to_string(),
+                "> /dev/vda".to_string(),
                 "chmod -R 777 /".to_string(),
+                "/dev/tcp/".to_string(),
+                "/dev/udp/".to_string(),
             ],
             env: HashMap::new(),
         }
@@ -72,17 +143,55 @@ impl ShellTool {
     }
 
     fn is_command_allowed(&self, command: &str) -> bool {
+        let normalized = normalize_command(command);
+
+        // Check blocked patterns against normalized command
         for blocked in &self.blocked_patterns {
-            if command.contains(blocked) {
+            if normalized.contains(blocked) {
                 return false;
             }
         }
 
+        // In allowlist mode: exact base-command match + no shell chaining
         if !self.allowed_commands.is_empty() {
-            return self.allowed_commands.iter().any(|a| command.starts_with(a));
+            let base = extract_base_command(&normalized);
+            if !self.allowed_commands.iter().any(|a| a == base) {
+                return false;
+            }
+            // Block shell operators in allowlist mode to prevent chaining
+            if has_unquoted_shell_operators(&normalized) {
+                return false;
+            }
         }
 
         true
+    }
+
+    fn validate_env(env: &HashMap<String, String>) -> std::result::Result<(), kkr_core::Error> {
+        for key in env.keys() {
+            let key_upper = key.to_uppercase();
+            if BLOCKED_ENV_VARS.iter().any(|&b| key_upper == b || key_upper.starts_with(b)) {
+                return Err(kkr_core::Error::security(
+                    format!("Blocked environment variable: {}", key),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_working_dir(dir: &std::path::Path, ctx: &ToolContext) -> std::result::Result<(), kkr_core::Error> {
+        if let Some(ref root) = ctx.workspace_root {
+            let canonical_root = root.as_std_path().canonicalize()
+                .unwrap_or_else(|_| root.as_std_path().to_path_buf());
+            let canonical_dir = dir.canonicalize()
+                .unwrap_or_else(|_| dir.to_path_buf());
+            if !canonical_dir.starts_with(&canonical_root) {
+                return Err(kkr_core::Error::PathTraversal {
+                    path: dir.display().to_string(),
+                });
+            }
+        }
+        Ok(())
     }
 }
 
@@ -141,14 +250,24 @@ impl Tool for ShellTool {
         let params: ShellParams = serde_json::from_value(params)
             .map_err(|e| kkr_core::Error::tool(format!("Invalid parameters: {}", e)))?;
 
-        debug_assert!(!params.command.is_empty(), "command must not be empty");
+        if params.command.is_empty() {
+            return Err(kkr_core::Error::Validation {
+                field: "command".to_string(),
+                message: "command must not be empty".to_string(),
+            });
+        }
 
         if !self.is_command_allowed(&params.command) {
-            return Err(kkr_core::Error::tool(format!(
+            return Err(kkr_core::Error::security(format!(
                 "Command not allowed: {}",
                 params.command
             )));
         }
+
+        // Validate environment variables against blocklist
+        Self::validate_env(&self.env)?;
+        Self::validate_env(&params.env)?;
+        Self::validate_env(&ctx.env)?;
 
         let work_dir = params
             .working_dir
@@ -159,6 +278,11 @@ impl Tool for ShellTool {
                     .as_ref()
                     .map(|p| p.as_std_path().to_owned())
             });
+
+        // Validate working directory against workspace root
+        if let Some(ref dir) = work_dir {
+            Self::validate_working_dir(dir, ctx)?;
+        }
 
         let start = std::time::Instant::now();
 

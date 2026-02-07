@@ -231,7 +231,18 @@ impl Pipeline {
         .await;
 
         let start = std::time::Instant::now();
-        let result = step.execute(ctx).await;
+        let result = match step.timeout_ms() {
+            Some(ms) => {
+                match tokio::time::timeout(
+                    std::time::Duration::from_millis(ms),
+                    step.execute(ctx),
+                ).await {
+                    Ok(r) => r,
+                    Err(_) => Err(crate::Error::Timeout { duration_ms: ms }),
+                }
+            }
+            None => step.execute(ctx).await,
+        };
         let duration_ms = start.elapsed().as_millis() as u64;
 
         executed.push(name.to_string());
@@ -393,7 +404,20 @@ fn execute_node_standalone<'a>(
                 ctx.step_index += 1;
                 executed.push(name.clone());
 
-                match step.execute(ctx).await {
+                let step_result = match step.timeout_ms() {
+                    Some(ms) => {
+                        match tokio::time::timeout(
+                            std::time::Duration::from_millis(ms),
+                            step.execute(ctx),
+                        ).await {
+                            Ok(r) => r,
+                            Err(_) => Err(crate::Error::Timeout { duration_ms: ms }),
+                        }
+                    }
+                    None => step.execute(ctx).await,
+                };
+
+                match step_result {
                     Ok(result) => {
                         if matches!(result, StepResult::Error(_)) {
                             *failed += 1;

@@ -749,7 +749,19 @@ impl Agent {
                                 }).await;
                             }
 
-                            let result = self.execute_tool_call(tool_call).await;
+                            // Tool timeout enforcement
+                            let tool_timeout_ms = tools_opt
+                                .as_ref()
+                                .and_then(|defs| defs.iter().find(|d| d.name == tool_call.name))
+                                .map(|d| d.metadata.timeout_ms)
+                                .unwrap_or(30_000);
+                            let result = match tokio::time::timeout(
+                                Duration::from_millis(tool_timeout_ms),
+                                self.execute_tool_call(tool_call),
+                            ).await {
+                                Ok(r) => r,
+                                Err(_) => Err(crate::Error::Timeout { duration_ms: tool_timeout_ms }),
+                            };
                             let success = result.is_ok();
 
                             let result_value = match &result {
@@ -968,7 +980,19 @@ impl Agent {
                                     .await;
                             }
 
-                            let result = self.execute_tool_call(tool_call).await;
+                            // Tool timeout enforcement
+                            let tool_timeout_ms = paused_ctx.tools
+                                .as_ref()
+                                .and_then(|defs| defs.iter().find(|d| d.name == tool_call.name))
+                                .map(|d| d.metadata.timeout_ms)
+                                .unwrap_or(30_000);
+                            let result = match tokio::time::timeout(
+                                Duration::from_millis(tool_timeout_ms),
+                                self.execute_tool_call(tool_call),
+                            ).await {
+                                Ok(r) => r,
+                                Err(_) => Err(crate::Error::Timeout { duration_ms: tool_timeout_ms }),
+                            };
                             let success = result.is_ok();
 
                             let tool_msg = Message {

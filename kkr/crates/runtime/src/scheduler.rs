@@ -107,6 +107,8 @@ pub struct Scheduler {
     executor: Executor,
     scheduled: Arc<RwLock<HashMap<Id, ScheduledTask>>>,
     running: Arc<RwLock<bool>>,
+    /// Tracks tasks for retry: id -> (original_task, retry_count)
+    retry_tracker: Arc<RwLock<HashMap<Id, (Task, usize)>>>,
 }
 
 impl Scheduler {
@@ -118,6 +120,7 @@ impl Scheduler {
             executor,
             scheduled: Arc::new(RwLock::new(HashMap::new())),
             running: Arc::new(RwLock::new(false)),
+            retry_tracker: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -225,13 +228,43 @@ impl Scheduler {
             }
 
             for scheduled_task in due_tasks {
+                // Track task for potential retry
+                if self.config.max_retries > 0 {
+                    self.retry_tracker.write().await
+                        .entry(scheduled_task.task.id)
+                        .or_insert_with(|| (scheduled_task.task.clone(), 0));
+                }
                 let _ = executor.submit(scheduled_task.task).await;
             }
 
             let h = handler.clone();
             if let Some(output) = executor.run_one(move |task| h(task)).await {
                 if output.is_failure() {
-                    debug!(task_id = %output.task_id, "Task failed, checking for retry");
+                    let mut tracker = self.retry_tracker.write().await;
+                    if let Some((task, count)) = tracker.get_mut(&output.task_id) {
+                        if *count < self.config.max_retries {
+                            *count += 1;
+                            let attempt = *count;
+                            let delay_ms = self.config.retry_delay_ms * 2u64.pow((attempt - 1) as u32);
+                            let retry_task = task.clone();
+                            drop(tracker);
+                            let _ = self.schedule(
+                                ScheduledTask::new(retry_task).delay(Duration::from_millis(delay_ms))
+                            ).await;
+                            debug!(
+                                task_id = %output.task_id,
+                                attempt = attempt,
+                                delay_ms = delay_ms,
+                                "Retrying failed task with exponential backoff"
+                            );
+                        } else {
+                            debug!(task_id = %output.task_id, "Task failed, max retries exhausted");
+                            tracker.remove(&output.task_id);
+                        }
+                    }
+                } else {
+                    // Success: clean up retry tracker
+                    self.retry_tracker.write().await.remove(&output.task_id);
                 }
             }
 

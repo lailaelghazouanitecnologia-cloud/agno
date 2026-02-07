@@ -7,11 +7,13 @@
 mod language;
 mod parser;
 mod symbol;
+pub mod treesitter;
 mod view;
 
 pub use language::Language;
 pub use parser::AstParser;
 pub use symbol::*;
+pub use treesitter::TreeSitterParser;
 pub use view::{AstLevel, AstView};
 
 use serde::{Deserialize, Serialize};

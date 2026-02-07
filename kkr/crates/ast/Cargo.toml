@@ -12,5 +12,9 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 regex = { workspace = true }
 
+# Tree-sitter for precise AST parsing (Rust only)
+tree-sitter = "0.24"
+tree-sitter-rust = "0.23"
+
 [dev-dependencies]
 tokio = { workspace = true }

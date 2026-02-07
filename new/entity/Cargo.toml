@@ -36,6 +36,8 @@ members = [
     "crates/extensions/entity-reasoning",
     # CLI — user interface
     "crates/cli/entity-cli",
+    # Examples
+    "examples/baseten-test",
 ]
 
 [workspace.package]

@@ -1,0 +1,19 @@
+[package]
+name = "baseten-test"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "baseten-test"
+path = "src/main.rs"
+
+[dependencies]
+entity-runner = { path = "../../crates/orchestration/entity-runner" }
+entity-tools = { path = "../../crates/tools/entity-tools" }
+entity-safety = { path = "../../crates/safety/entity-safety" }
+common-error = { path = "../../../common/crates/common-error" }
+async-trait = "0.1"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.11", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

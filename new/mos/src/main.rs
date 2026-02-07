@@ -44,7 +44,6 @@ fn print_usage() {
     eprintln!("Options:");
     eprintln!("  --model <name>          Model name (e.g. gpt-4o, zai-org/GLM-4.7)");
     eprintln!("  --base-url <url>        API base URL");
-    eprintln!("  --api-key <key>         API key (or MOS_API_KEY / OPENAI_API_KEY)");
     eprintln!("  --workspace <path>      Working directory (default: .)");
     eprintln!("  --max-iter <n>          Max iterations (default: 20)");
     eprintln!("  --autonomous            Skip approval prompts");
@@ -84,10 +83,6 @@ fn parse_args() -> Option<Command> {
             }
             "--base-url" => {
                 overrides.base_url = args.get(i + 1).cloned();
-                i += 2;
-            }
-            "--api-key" => {
-                overrides.api_key = args.get(i + 1).cloned();
                 i += 2;
             }
             "--workspace" => {
@@ -169,7 +164,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 Some(k) if !k.is_empty() => k,
                 _ => {
                     eprintln!("error: no API key");
-                    eprintln!("  set it in .mos.ini, --api-key, MOS_API_KEY, or OPENAI_API_KEY");
+                    eprintln!("  set MOS_API_KEY or OPENAI_API_KEY env var");
                     std::process::exit(1);
                 }
             };

@@ -8,7 +8,6 @@
 //! name = openai
 //! model = zai-org/GLM-4.7
 //! base_url = https://inference.baseten.co/v1
-//! api_key = env:MOS_API_KEY
 //!
 //! [agent]
 //! max_iterations = 20
@@ -16,6 +15,8 @@
 //! temperature = 0.3
 //! max_tokens = 4096
 //! ```
+//!
+//! API key is resolved from env vars only: MOS_API_KEY or OPENAI_API_KEY.
 
 use std::path::{Path, PathBuf};
 
@@ -27,7 +28,6 @@ pub struct MosConfig {
     pub provider: String,
     pub model: Option<String>,
     pub base_url: Option<String>,
-    pub api_key: Option<String>,
     // Agent
     pub max_iterations: usize,
     pub approval: String,
@@ -43,7 +43,6 @@ impl Default for MosConfig {
             provider: "openai".into(),
             model: None,
             base_url: None,
-            api_key: None,
             max_iterations: 20,
             approval: "safe_only".into(),
             temperature: 0.3,
@@ -81,10 +80,6 @@ impl MosConfig {
         if let Some(v) = ini.get("provider", "base_url") {
             cfg.base_url = Some(v);
         }
-        if let Some(v) = ini.get("provider", "api_key") {
-            cfg.api_key = Some(resolve_api_key(&v));
-        }
-
         // [agent]
         if let Some(v) = ini.get("agent", "max_iterations") {
             cfg.max_iterations = v.parse().unwrap_or(cfg.max_iterations);
@@ -110,9 +105,6 @@ impl MosConfig {
         if let Some(ref u) = overrides.base_url {
             self.base_url = Some(u.clone());
         }
-        if let Some(ref k) = overrides.api_key {
-            self.api_key = Some(k.clone());
-        }
         if let Some(n) = overrides.max_iterations {
             self.max_iterations = n;
         }
@@ -122,11 +114,10 @@ impl MosConfig {
         self.workspace = overrides.workspace.clone();
     }
 
-    /// Resolve the final API key (from config, env, or CLI).
+    /// Resolve the API key from environment variables.
     pub fn resolve_api_key(&self) -> Option<String> {
-        self.api_key
-            .clone()
-            .or_else(|| std::env::var("MOS_API_KEY").ok())
+        std::env::var("MOS_API_KEY")
+            .ok()
             .or_else(|| std::env::var("OPENAI_API_KEY").ok())
     }
 }
@@ -136,22 +127,9 @@ impl MosConfig {
 pub struct CliOverrides {
     pub model: Option<String>,
     pub base_url: Option<String>,
-    pub api_key: Option<String>,
     pub max_iterations: Option<usize>,
     pub autonomous: bool,
     pub workspace: PathBuf,
-}
-
-/// Resolve an API key value. Supports `env:VAR_NAME` syntax.
-fn resolve_api_key(value: &str) -> String {
-    if let Some(var_name) = value.strip_prefix("env:") {
-        std::env::var(var_name).unwrap_or_else(|_| {
-            eprintln!("warning: env var {} not set", var_name);
-            String::new()
-        })
-    } else {
-        value.to_string()
-    }
 }
 
 /// Generate the default `.mos.ini` content.
@@ -161,7 +139,6 @@ pub fn default_config_content() -> String {
 name = openai
 # model = gpt-4o
 # base_url = https://api.openai.com/v1
-# api_key = env:MOS_API_KEY
 
 [agent]
 max_iterations = 20

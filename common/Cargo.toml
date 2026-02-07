@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/common-error",
+    "crates/common-config",
+    "crates/common-serde",
+    "crates/common-traits",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+thiserror = "1.0"
+toml = "0.8"
+common-error = { path = "crates/common-error" }
+common-config = { path = "crates/common-config" }
+common-serde = { path = "crates/common-serde" }
+common-traits = { path = "crates/common-traits" }

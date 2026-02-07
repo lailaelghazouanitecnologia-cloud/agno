@@ -1,0 +1,17 @@
+[package]
+name = "entity-descriptor"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+entity-core = { workspace = true }
+common-error = { workspace = true }
+common-traits = { workspace = true }
+roska-descriptor = { workspace = true }
+roska-generator = { workspace = true }
+roska-processor = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }

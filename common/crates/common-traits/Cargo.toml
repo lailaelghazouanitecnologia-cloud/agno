@@ -1,0 +1,8 @@
+[package]
+name = "common-traits"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+common-error = { workspace = true }

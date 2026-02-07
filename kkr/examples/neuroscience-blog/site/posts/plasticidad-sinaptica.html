@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plasticidad Sináptica y LTP - NeuroSciencia Blog</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            color: #e8e8e8;
+            min-height: 100vh;
+            line-height: 1.7;
+        }
+        
+        header {
+            background: rgba(15, 52, 96, 0.95);
+            padding: 2rem 0;
+            text-align: center;
+            border-bottom: 3px solid #00d9ff;
+            box-shadow: 0 4px 20px rgba(0, 217, 255, 0.3);
+        }
+        
+        h1 {
+            font-size: 2.5rem;
+            color: #00d9ff;
+            text-shadow: 0 0 20px rgba(0, 217, 255, 0.5);
+            margin-bottom: 0.5rem;
+        }
+        
+        .subtitle {
+            font-size: 1rem;
+            color: #a0a0a0;
+        }
+        
+        nav {
+            background: rgba(22, 33, 62, 0.9);
+            padding: 1rem 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid #00d9ff;
+        }
+        
+        nav ul {
+            list-style: none;
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            flex-wrap: wrap;
+            padding: 0 1rem;
+        }
+        
+        nav a {
+            color: #e8e8e8;
+            text-decoration: none;
+            font-size: 1rem;
+            padding: 0.5rem 1.2rem;
+            border-radius: 25px;
+            transition: all 0.3s ease;
+            border: 1px solid transparent;
+        }
+        
+        nav a:hover {
+            background: rgba(0, 217, 255, 0.2);
+            border-color: #00d9ff;
+            color: #00d9ff;
+        }
+        
+        main {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 3rem 2rem;
+        }
+        
+        .article-meta {
+            background: rgba(0, 217, 255, 0.1);
+            padding: 1rem 1.5rem;
+            border-radius: 10px;
+            margin-bottom: 2rem;
+            border-left: 4px solid #00d9ff;
+        }
+        
+        .article-meta p {
+            color: #a0a0a0;
+            font-size: 0.9rem;
+        }
+        
+        .article-content h2 {
+            color: #00d9ff;
+            font-size: 1.8rem;
+            margin: 2.5rem 0 1.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid rgba(0, 217, 255, 0.3);
+        }
+        
+        .article-content h3 {
+            color: #7dd3fc;
+            font-size: 1.4rem;
+            margin: 2rem 0 1rem;
+        }
+        
+        .article-content p {
+            margin-bottom: 1.5rem;
+            color: #d0d0d0;
+        }
+        
+        .article-content ul, .article-content ol {
+            margin: 1.5rem 0;
+            padding-left: 2rem;
+        }
+        
+        .article-content li {
+            margin-bottom: 0.8rem;
+            color: #d0d0d0;
+        }
+        
+        .highlight-box {
+            background: rgba(0, 217, 255, 0.08);
+            border: 1px solid rgba(0, 217, 255, 0.3);
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin: 2rem 0;
+        }
+        
+        .highlight-box h4 {
+            color: #00d9ff;
+            margin-bottom: 1rem;
+        }
+        
+        .highlight-box p {
+            color: #b0b0b0;
+            margin-bottom: 0;
+        }
+        
+        .key-term {
+            color: #00d9ff;
+            font-weight: bold;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-top: 3rem;
+            padding: 0.8rem 2rem;
+            background: rgba(0, 217, 255, 0.2);
+            color: #00d9ff;
+            text-decoration: none;
+            border-radius: 25px;
+            border: 1px solid #00d9ff;
+            transition: all 0.3s ease;
+        }
+        
+        .back-link:hover {
+            background: rgba(0, 217, 255, 0.3);
+            box-shadow: 0 0 15px rgba(0, 217, 255, 0.4);
+        }
+        
+        footer {
+            background: rgba(15, 52, 96, 0.95);
+            text-align: center;
+            padding: 2rem;
+            border-top: 1px solid #00d9ff;
+            margin-top: 4rem;
+        }
+        
+        footer p {
+            color: #a0a0a0;
+        }
+        
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 1.8rem;
+            }
+            
+            .article-content h2 {
+                font-size: 1.5rem;
+            }
+            
+            main {
+                padding: 2rem 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🔬 Plasticidad Sináptica y LTP</h1>
+        <p class="subtitle">El fundamento celular del aprendizaje y la memoria</p>
+    </header>
+    
+    <nav>
+        <ul>
+            <li><a href="../index.html">Inicio</a></li>
+            <li><a href="plasticidad-sinaptica.html">Plasticidad Sináptica</a></li>
+            <li><a href="hipocampo-memoria.html">Hipocampo y Memoria</a></li>
+            <li><a href="tecnicas-estudio.html">Técnicas de Estudio</a></li>
+            <li><a href="../about.html">Sobre Nosotros</a></li>
+        </ul>
+    </nav>
+    
+    <main>
+        <div class="article-meta">
+            <p><strong>Categoría:</strong> Neurobiología | <strong>Tiempo de lectura:</strong> 8 minutos | <strong>Nivel:</strong> Intermedio</p>
+        </div>
+        
+        <article class="article-content">
+            <p>La <span class="key-term">plasticidad sináptica</span> es la capacidad de las sinapsis —los puntos de comunicación entre neuronas— de cambiar su fuerza y eficacia a lo largo del tiempo. Este fenómeno constituye el fundamento celular del aprendizaje y la memoria, permitiendo que el cerebro se adapte continuamente a nuevas experiencias y almacene información.</p>
+            
+            <h2>¿Qué es la Plasticidad Sináptica?</h2>
+            
+            <p>La plasticidad sináptica se refiere a la modificación de la eficacia de la transmisión sináptica. Estas modificaciones pueden ser de dos tipos principales:</p>
+            
+            <ul>
+                <li><strong>Potenciación sináptica:</strong> Aumento de la eficacia de la transmisión sináptica</li>
+                <li><strong>Depresión sináptica:</strong> Disminución de la eficacia de la transmisión sináptica</li>
+            </ul>
+            
+            <p>Estos cambios pueden durar desde milisegundos hasta años, y son el resultado de mecanismos moleculares complejos que involucran receptores, canales iónicos y proteínas sinápticas.</p>
+            
+            <h2>La Potenciación a Largo Plazo (LTP)</h2>
+            
+            <p>La <span class="key-term">Potenciación a Largo Plazo</span> (Long-Term Potentiation, LTP) es una forma de plasticidad sináptica que resulta en un aumento persistente de la fuerza de la transmisión sináptica. Fue descubierta en 1973 por Tim Bliss y Terje Lømo en el hipocampo de conejos, y desde entonces se considera el modelo celular predominante del aprendizaje y la memoria.</p>
+            
+            <h3>Características Principales del LTP</h3>
+            
+            <ol>
+                <li><strong>Asociatividad:</strong> La estimulación simultánea de una sinapsis débil y una fuerte puede inducir LTP en la sinapsis débil</li>
+                <li><strong>Especificidad de input:</strong> El LTP ocurre solo en las sinapsis que han sido estimuladas</li>
+                <li><strong>Persistencia:</strong> Puede durar desde horas hasta meses o incluso años</li>
+                <li><strong>Cooperatividad:</strong> Múltiples sinapsis deben activarse conjuntamente para inducir LTP</li>
+            </ol>
+            
+            <h3>Mecanismos Moleculares del LTP</h3>
+            
+            <p>El LTP en el hipocampo depende principalmente de los receptores <span class="key-term">NMDA</span> (N-metil-D-aspartato) del glutamato. El proceso puede describirse en las siguientes etapas:</p>
+            
+            <ul>
+                <li><strong>Inducción:</strong> Una estimulación de alta frecuencia libera glutamato en la hendidura sináptica</li>
+                <li><strong>Activación de receptores NMDA:</strong> El glutamato se une a los receptores NMDA y AMPA</li>
+                <li><strong>Entrada de calcio:</strong> Los receptores NMDA permiten la entrada de Ca²⁺ a la neurona postsináptica</li>
+                <li><strong>Cascada de señalización:</strong> El calcio activa quinasas como CaMKII y PKC</li>
+                <li><strong>Expresión:</strong> Las quinasas fosforilan receptores AMPA, aumentando su conductancia</li>
+                <li><strong>Inserción de receptores:</strong> Nuevos receptores AMPA se insertan en la membrana postsináptica</li>
+            </ul>
+            
+            <div class="highlight-box">
+                <h4>💡 Dato Científico</h4>
+                <p>La enzima CaMKII (Calcium/Calmodulin-dependent protein kinase II) es crucial para el LTP. Una vez activada por el calcio, puede autofosforilarse y mantenerse activa incluso después de que los niveles de calcio disminuyan, actuando como una "memoria molecular" de la actividad sináptica previa.</p>
+            </div>
+            
+            <h2>La Depresión a Largo Plazo (LTD)</h2>
+            
+            <p>La <span class="key-term">Depresión a Largo Plazo</span> (Long-Term Depression, LTD) es el proceso opuesto al LTP, resultando en una disminución persistente de la eficacia sináptica. La LTD es igualmente importante para el aprendizaje, ya que permite:</p>
+            
+            <ul>
+                <li>La eliminación de información irrelevante</li>
+                <li>El refinamiento de circuitos neuronales durante el desarrollo</li>
+                <li>La prevención de la saturación sináptica</li>
+                <li>El balance homeostático de la actividad neuronal</li>
+            </ul>
+            
+            <h3>Mecanismos de la LTD</h3>
+            
+            <p>La LTD puede inducirse mediante estimulación de baja frecuencia (1-5 Hz) y también depende de los receptores NMDA, pero con una cascada de señalización diferente:</p>
+            
+            <ul>
+                <li>Entrada moderada de calcio a través de receptores NMDA</li>
+                <li>Activación de fosfatasas como PP1 y calcineurina</li>
+                <li>Desfosforilación y endocitosis de receptores AMPA</li>
+                <li>Disminución de la respuesta postsináptica al glutamato</li>
+            </ul>
+            
+            <h2>Plasticidad Estructural</h2>
+            
+            <p>Además de los cambios funcionales en la eficacia sináptica, la plasticidad también puede manifestarse como cambios estructurales:</p>
+            
+            <ul>
+                <li><strong>Formación de nuevas espinas dendríticas:</strong> Pequeñas protrusiones que reciben inputs sinápticos</li>
+                <li><strong>Crecimiento de espinas existentes:</strong> Aumento del tamaño y complejidad</li>
+                <li><strong>Eliminación de espinas:</strong> Remodelación de circuitos neuronales</li>
+                <li><strong>Sinaptogénesis:</strong> Formación de nuevas sinapsis</li>
+            </ul>
+            
+            <div class="highlight-box">
+                <h4>🧠 Importancia Clínica</h4>
+                <p>Alteraciones en la plasticidad sináptica se han implicado en numerosos trastornos neurológicos y psiquiátricos, incluyendo la enfermedad de Alzheimer, esquizofrenia, trastorno bipolar y autismo. Comprender estos mecanismos es crucial para el desarrollo de nuevas terapias.</p>
+            </div>
+            
+            <h2>Conclusión</h2>
+            
+            <p>La plasticidad sináptica, particularmente el LTP y la LTD, representa el mecanismo fundamental mediante el cual el cerebro almacena información y se adapta al entorno. Estos procesos moleculares y celulares subyacen a todas nuestras capacidades cognitivas, desde el aprendizaje de habilidades motoras hasta la formación de memorias complejas. La investigación continua en este campo promete revelar nuevos insights sobre el funcionamiento del cerebro humano y abrir puertas a tratamientos innovadores para trastornos neurológicos.</p>
+            
+            <h3>Referencias Científicas</h3>
+            
+            <ul>
+                <li>Bliss TV, Lømo T. (1973). Long-lasting potentiation of synaptic transmission in the dentate area of the anaesthetized rabbit following stimulation of the perforant path. Journal of Physiology.</li>
+                <li>Malenka RC, Bear MF. (2004). LTP and LTD: an embarrassment of riches. Neuron.</li>
+                <li>Lisman J. (2003). Long-term potentiation: outstanding questions and attempted mechanisms. Nature Reviews Neuroscience.</li>
+            </ul>
+        </article>
+        
+        <a href="../index.html" class="back-link">← Volver al inicio</a>
+    </main>
+    
+    <footer>
+        <p>© 2024 NeuroSciencia Blog. Todos los derechos reservados.</p>
+    </footer>
+</body>
+</html>

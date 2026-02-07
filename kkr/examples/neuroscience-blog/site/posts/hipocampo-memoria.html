@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>El Hipocampo y la Memoria - NeuroSciencia Blog</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            color: #e8e8e8;
+            min-height: 100vh;
+            line-height: 1.7;
+        }
+        
+        header {
+            background: rgba(15, 52, 96, 0.95);
+            padding: 2rem 0;
+            text-align: center;
+            border-bottom: 3px solid #00d9ff;
+            box-shadow: 0 4px 20px rgba(0, 217, 255, 0.3);
+        }
+        
+        h1 {
+            font-size: 2.5rem;
+            color: #00d9ff;
+            text-shadow: 0 0 20px rgba(0, 217, 255, 0.5);
+            margin-bottom: 0.5rem;
+        }
+        
+        .subtitle {
+            font-size: 1rem;
+            color: #a0a0a0;
+        }
+        
+        nav {
+            background: rgba(22, 33, 62, 0.9);
+            padding: 1rem 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid #00d9ff;
+        }
+        
+        nav ul {
+            list-style: none;
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            flex-wrap: wrap;
+            padding: 0 1rem;
+        }
+        
+        nav a {
+            color: #e8e8e8;
+            text-decoration: none;
+            font-size: 1rem;
+            padding: 0.5rem 1.2rem;
+            border-radius: 25px;
+            transition: all 0.3s ease;
+            border: 1px solid transparent;
+        }
+        
+        nav a:hover {
+            background: rgba(0, 217, 255, 0.2);
+            border-color: #00d9ff;
+            color: #00d9ff;
+        }
+        
+        main {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 3rem 2rem;
+        }
+        
+        .article-meta {
+            background: rgba(0, 217, 255, 0.1);
+            padding: 1rem 1.5rem;
+            border-radius: 10px;
+            margin-bottom: 2rem;
+            border-left: 4px solid #00d9ff;
+        }
+        
+        .article-meta p {
+            color: #a0a0a0;
+            font-size: 0.9rem;
+        }
+        
+        .article-content h2 {
+            color: #00d9ff;
+            font-size: 1.8rem;
+            margin: 2.5rem 0 1.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid rgba(0, 217, 255, 0.3);
+        }
+        
+        .article-content h3 {
+            color: #7dd3fc;
+            font-size: 1.4rem;
+            margin: 2rem 0 1rem;
+        }
+        
+        .article-content p {
+            margin-bottom: 1.5rem;
+            color: #d0d0d0;
+        }
+        
+        .article-content ul, .article-content ol {
+            margin: 1.5rem 0;
+            padding-left: 2rem;
+        }
+        
+        .article-content li {
+            margin-bottom: 0.8rem;
+            color: #d0d0d0;
+        }
+        
+        .highlight-box {
+            background: rgba(0, 217, 255, 0.08);
+            border: 1px solid rgba(0, 217, 255, 0.3);
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin: 2rem 0;
+        }
+        
+        .highlight-box h4 {
+            color: #00d9ff;
+            margin-bottom: 1rem;
+        }
+        
+        .highlight-box p {
+            color: #b0b0b0;
+            margin-bottom: 0;
+        }
+        
+        .key-term {
+            color: #00d9ff;
+            font-weight: bold;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-top: 3rem;
+            padding: 0.8rem 2rem;
+            background: rgba(0, 217, 255, 0.2);
+            color: #00d9ff;
+            text-decoration: none;
+            border-radius: 25px;
+            border: 1px solid #00d9ff;
+            transition: all 0.3s ease;
+        }
+        
+        .back-link:hover {
+            background: rgba(0, 217, 255, 0.3);
+            box-shadow: 0 0 15px rgba(0, 217, 255, 0.4);
+        }
+        
+        footer {
+            background: rgba(15, 52, 96, 0.95);
+            text-align: center;
+            padding: 2rem;
+            border-top: 1px solid #00d9ff;
+            margin-top: 4rem;
+        }
+        
+        footer p {
+            color: #a0a0a0;
+        }
+        
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 1.8rem;
+            }
+            
+            .article-content h2 {
+                font-size: 1.5rem;
+            }
+            
+            main {
+                padding: 2rem 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🧠 El Hipocampo y la Memoria</h1>
+        <p class="subtitle">El centro de formación de memorias declarativas</p>
+    </header>
+    
+    <nav>
+        <ul>
+            <li><a href="../index.html">Inicio</a></li>
+            <li><a href="plasticidad-sinaptica.html">Plasticidad Sináptica</a></li>
+            <li><a href="hipocampo-memoria.html">Hipocampo y Memoria</a></li>
+            <li><a href="tecnicas-estudio.html">Técnicas de Estudio</a></li>
+            <li><a href="../about.html">Sobre Nosotros</a></li>
+        </ul>
+    </nav>
+    
+    <main>
+        <div class="article-meta">
+            <p><strong>Categoría:</strong> Neuroanatomía | <strong>Tiempo de lectura:</strong> 10 minutos | <strong>Nivel:</strong> Intermedio</p>
+        </div>
+        
+        <article class="article-content">
+            <p>El <span class="key-term">hipocampo</span> es una estructura cerebral fundamental para la formación de nuevos recuerdos, particularmente las memorias declarativas y espaciales. Ubicado en el lóbulo temporal medial, esta estructura en forma de caballito de mar (de ahí su nombre, del griego "hippos" = caballo y "kampos" = monstruo marino) juega un papel crucial en el proceso de consolidación de la memoria.</p>
+            
+            <h2>Anatomía del Hipocampo</h2>
+            
+            <p>El hipocampo forma parte del sistema límbico y está compuesto por varias subregiones interconectadas:</p>
+            
+            <ul>
+                <li><strong>Cornu Ammonis (CA):</strong> Dividido en cuatro campos (CA1, CA2, CA3 y CA4), cada uno con funciones específicas en el procesamiento de información</li>
+                <li><strong>Giro dentado:</strong> Recibe inputs de la corteza entorrinal y es crucial para la separación de patrones</li>
+                <li><strong>Subículo:</strong> Conecta el hipocampo con otras estructuras cerebrales</li>
+                <li><strong>Corteza entorrinal:</strong> La principal vía de entrada y salida de información del hipocampo</li>
+            </ul>
+            
+            <p>El circuito hipocampal, conocido como <span class="key-term">circuito de Papez</span>, sigue una ruta trisináptica: corteza entorrinal → giro dentado → CA3 → CA1 → corteza entorrinal. Este circuito es fundamental para el procesamiento y almacenamiento de información memorativa.</p>
+            
+            <h2>Tipos de Memoria y el Hipocampo</h2>
+            
+            <p>El hipocampo está especializado en ciertos tipos de memoria, mientras que otros tipos dependen de diferentes estructuras cerebrales:</p>
+            
+            <h3>Memoria Declarativa (Explícita)</h3>
+            
+            <p>La memoria declarativa se divide en dos subtipos, ambos dependientes del hipocampo:</p>
+            
+            <ul>
+                <li><strong>Memoria episódica:</strong> Recuerdos de eventos personales con contexto espaciotemporal (ej: "qué hice el verano pasado")</li>
+                <li><strong>Memoria semántica:</strong> Conocimiento general sobre el mundo y hechos (ej: "la capital de Francia es París")</li>
+            </ul>
+            
+            <h3>Memoria Espacial</h3>
+            
+            <p>El hipocampo es esencial para la navegación espacial y la formación de mapas cognitivos. Las <span class="key-term">células de lugar</span> (place cells), descubiertas por John O'Keefe en 1971, son neuronas del hipocampo que se activan cuando un animal se encuentra en una ubicación específica de su entorno, creando una representación neural del espacio.</p>
+            
+            <div class="highlight-box">
+                <h4>🏆 Premio Nobel</h4>
+                <p>En 2014, John O'Keefe, May-Britt Moser y Edvard Moser recibieron el Premio Nobel de Fisiología o Medicina por su descubrimiento de las células que constituyen un sistema de posicionamiento en el cerebro, incluyendo las células de lugar del hipocampo y las células de cuadrícula de la corteza entorrinal.</p>
+            </div>
+            
+            <h3>Memoria No Declarativa (Implícita)</h3>
+            
+            <p>Estos tipos de memoria generalmente NO dependen del hipocampo:</p>
+            
+            <ul>
+                <li><strong>Memoria procedimental:</strong> Habilidades motoras y hábitos (cerebelo, ganglios basales)</li>
+                <li><strong>Condicionamiento clásico:</strong> Asociaciones estímulo-respuesta (amígdala, cerebelo)</li>
+                <li><strong>Priming:</strong> Facilitación del procesamiento de información previamente expuesta (corteza neocortical)</li>
+            </ul>
+            
+            <h2>Procesos de Memoria en el Hipocampo</h2>
+            
+            <h3>Codificación</h3>
+            
+            <p>La codificación es el proceso mediante el cual la información sensorial se transforma en una representación neural que puede ser almacenada. En el hipocampo, este proceso implica:</p>
+            
+            <ul>
+                <li><strong>Integración multimodal:</strong> El hipocampo recibe información visual, auditiva, espacial y contextual de múltiples áreas corticales</li>
+                <li><strong>Sincronización oscilatoria:</strong> Las oscilaciones theta (4-8 Hz) y gamma (30-100 Hz) coordinan la actividad neuronal durante la codificación</li>
+                <li><strong>Plasticidad sináptica:</strong> El LTP en las sinapsis hipocampales fortalece las representaciones de información relevante</li>
+            </ul>
+            
+            <h3>Consolidación</h3>
+            
+            <p>La consolidación es el proceso mediante el cual los recuerdos se estabilizan y se transfieren del hipocampo a la corteza cerebral para almacenamiento a largo plazo. Este proceso ocurre en dos fases:</p>
+            
+            <ul>
+                <li><strong>Consolidación sináptica:</strong> Ocurre dentro de minutos a horas, involucrando cambios en la eficacia sináptica</li>
+                <li><strong>Consolidación de sistemas:</strong> Ocurre durante días a años, involucrando la reorganización de representaciones de memoria en la corteza</li>
+            </ul>
+            
+            <p>El <span class="key-term">sueño</span>, particularmente el sueño REM, juega un papel crucial en la consolidación de memorias. Durante el sueño, el hipocampo reactiva patrones de actividad neuronal que ocurrieron durante la vigilia, fortaleciendo las conexiones sinápticas relevantes.</p>
+            
+            <h3>Recuperación</h3>
+            
+            <p>La recuperación de memorias almacenadas en el hipocampo implica:</p>
+            
+            <ul>
+                <li><strong>Reactivación de patrones:</strong> La reactivación de patrones neuronales específicos que codificaron el recuerdo original</li>
+                <li><strong>Reconstrucción:</strong> El recuerdo no es una reproducción exacta sino una reconstrucción basada en fragmentos de información</li>
+                <li><strong>Reconsolidación:</strong> Cada vez que se recupera un recuerdo, este se vuelve lábil y debe reconsolidarse, permitiendo su modificación</li>
+            </ul>
+            
+            <h2>Neurogénesis en el Hipocampo Adulto</h2>
+            
+            <p>Una de las características más fascinantes del hipocampo es su capacidad para generar nuevas neuronas en la edad adulta, un proceso llamado <span class="key-term">neurogénesis adulta</span>. Este ocurre principalmente en el giro dentado y tiene importantes implicaciones para:</p>
+            
+            <ul>
+                <li>El aprendizaje y la memoria</li>
+                <li>La regulación del estado de ánimo</li>
+                <li>La respuesta al estrés</li>
+                <li>La flexibilidad cognitiva</li>
+            </ul>
+            
+            <p>Factores como el ejercicio físico, el enriquecimiento ambiental y el aprendizaje pueden aumentar la neurogénesis, mientras que el estrés crónico, la depresión y el envejecimiento pueden disminuirla.</p>
+            
+            <div class="highlight-box">
+                <h4>🔬 Caso H.M.</h4>
+                <p>El paciente más famoso en la historia de la neurociencia de la memoria es Henry Molaison, conocido como H.M. Tras una cirugía bilateral del lóbulo temporal para tratar su epilepsia, H.M. desarrolló amnesia anterógrada severa: no podía formar nuevos recuerdos declarativos, aunque su memoria procedimental permanecía intacta. Este caso demostró la importancia crítica del hipocampo para la formación de nuevas memorias.</p>
+            </div>
+            
+            <h2>Patologías Asociadas al Hipocampo</h2>
+            
+            <p>El daño o disfunción del hipocampo se asocia con varios trastornos neurológicos y psiquiátricos:</p>
+            
+            <ul>
+                <li><strong>Enfermedad de Alzheimer:</strong> El hipocampo es una de las primeras áreas afectadas, resultando en déficits de memoria episódica</li>
+                <li><strong>Amnesia:</strong> Puede ser anterógrada (incapacidad para formar nuevos recuerdos) o retrógrada (pérdida de recuerdos previos)</li>
+                <li><strong>Epilepsia del lóbulo temporal:</strong> A menudo involucra el hipocampo y puede causar déficits de memoria</li>
+                <li><strong>Trastorno de estrés postraumático (TEPT):strong> Alteraciones en la consolidación y recuperación de memorias traumáticas</li>
+                <li><strong>Depresión:</strong> Se ha observado atrofia hipocampal en pacientes con depresión crónica</li>
+            </ul>
+            
+            <h2>Conclusión</h2>
+            
+            <p>El hipocampo es una estructura cerebral extraordinariamente compleja y versátil que desempeña un papel central en la formación, consolidación y recuperación de memorias declarativas y espaciales. Su capacidad para integrar información multimodal, su plasticidad sináptica excepcional y su capacidad única de neurogénesis adulta lo convierten en un foco principal de la investigación neurocientífica. Comprender mejor el funcionamiento del hipocampo no solo nos ayuda a entender la naturaleza de la memoria humana, sino que también abre caminos para el tratamiento de trastornos neurológicos y psiquiátricos.</p>
+            
+            <h3>Referencias Científicas</h3>
+            
+            <ul>
+                <li>O'Keefe J, Dostrovsky J. (1971). The hippocampus as a spatial map. Preliminary evidence from unit activity in the freely-moving rat. Experimental Neurology.</li>
+                <li>Squire LR, Stark CE, Clark RE. (2004). The medial temporal lobe. Annual Review of Neuroscience.</li>
+                <li>Eichenbaum H. (2017). Memory: Organization and Control. Annual Review of Psychology.</li>
+                <li>Scoville WB, Milner B. (1957). Loss of recent memory after bilateral hippocampal lesions. Journal of Neurology, Neurosurgery, and Psychiatry.</li>
+            </ul>
+        </article>
+        
+        <a href="../index.html" class="back-link">← Volver al inicio</a>
+    </main>
+    
+    <footer>
+        <p>© 2024 NeuroSciencia Blog. Todos los derechos reservados.</p>
+    </footer>
+</body>
+</html>

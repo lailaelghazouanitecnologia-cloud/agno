@@ -1,17 +1,18 @@
 [package]
-name = "kkr-errordb"
+name = "kkr-vm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Simple error knowledge base for KKR project intelligence"
+description = "Virtual Machine for KKR plan execution with opcode dispatch"
 
 [dependencies]
-kkr-core = { path = "../core" }
+kkr-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-uuid = { workspace = true }
+tracing = { workspace = true }
 async-trait = { workspace = true }
+tokio = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

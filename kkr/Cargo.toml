@@ -36,13 +36,16 @@ members = [
     "crates/sdk/tendencies",
     "crates/bindings/python",
     "crates/bindings/node",
-    # Project Intelligence System (ECS-inspired)
+    # Project Intelligence System
     "crates/ast",
     "crates/graph",
     "crates/errordb",
     "crates/project",
     "crates/coordinator",
     "crates/refactor",
+    # VM + Plan (new architecture)
+    "crates/vm",
+    "crates/plan",
     "examples/kkr-agent-demo",
 ]
 
@@ -96,6 +99,8 @@ kkr-errordb = { path = "crates/errordb" }
 kkr-project = { path = "crates/project" }
 kkr-coordinator = { path = "crates/coordinator" }
 kkr-refactor = { path = "crates/refactor" }
+kkr-vm = { path = "crates/vm" }
+kkr-plan = { path = "crates/plan" }
 
 [profile.release]
 opt-level = 3

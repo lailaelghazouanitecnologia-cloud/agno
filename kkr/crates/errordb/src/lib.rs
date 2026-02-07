@@ -9,9 +9,11 @@
 
 mod record;
 mod store;
+pub mod tool;
 
 pub use record::ErrorRecord;
 pub use store::ErrorDb;
+pub use tool::ErrorDbTool;
 
 /// Result type for ErrorDB operations.
 pub type Result<T> = std::result::Result<T, ErrorDbError>;

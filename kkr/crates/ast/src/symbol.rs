@@ -218,6 +218,17 @@ impl Symbol {
         }
     }
 
+    /// Line where this symbol ends.
+    pub fn line_end(&self) -> usize {
+        match self {
+            Symbol::Function(s) => s.line_end,
+            Symbol::Struct(s) => s.line_end,
+            Symbol::Enum(s) => s.line_end,
+            Symbol::Trait(s) => s.line_end,
+            Symbol::Constant(s) => s.line,
+        }
+    }
+
     /// Compact signature string.
     pub fn signature(&self) -> String {
         match self {

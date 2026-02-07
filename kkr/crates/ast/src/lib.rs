@@ -9,12 +9,14 @@ mod parser;
 mod symbol;
 pub mod treesitter;
 mod view;
+pub mod dual_view;
 
 pub use language::Language;
 pub use parser::AstParser;
 pub use symbol::*;
 pub use treesitter::TreeSitterParser;
 pub use view::{AstLevel, AstView};
+pub use dual_view::{DualView, DescriptiveView, ConcreteView};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -77,6 +79,11 @@ impl ProjectAst {
     /// Get a view at the specified AST level.
     pub fn view(&self, level: AstLevel) -> AstView {
         AstView::from_project(self, level)
+    }
+
+    /// Get the dual view (descriptive + concrete).
+    pub fn dual_view(&self) -> DualView {
+        DualView::from_project(self)
     }
 }
 

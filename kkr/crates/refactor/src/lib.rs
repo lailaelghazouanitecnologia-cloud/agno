@@ -9,9 +9,11 @@
 
 mod rename;
 mod propagate;
+pub mod tool;
 
 pub use rename::RenameChange;
 pub use propagate::{PropagationResult, RefactorEngine};
+pub use tool::RefactorTool;
 
 use kkr_ast::Symbol;
 use kkr_graph::{NodeKind, ProjectGraph};

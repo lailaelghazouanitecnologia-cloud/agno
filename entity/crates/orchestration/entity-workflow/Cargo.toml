@@ -1,0 +1,17 @@
+[package]
+name = "entity-workflow"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+common-error = { workspace = true }
+entity-core = { workspace = true }
+entity-run = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

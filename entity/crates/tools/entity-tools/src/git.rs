@@ -2,7 +2,7 @@
 
 use crate::{Tool, ToolParams, ToolResult};
 use async_trait::async_trait;
-use common_error::{Error, ErrorKind, Result};
+use common_error::{Error, Result};
 use std::path::PathBuf;
 
 /// Git status — show working tree state.

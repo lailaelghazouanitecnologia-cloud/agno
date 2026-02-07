@@ -1,0 +1,16 @@
+[package]
+name = "entity-reasoning"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+common-error = { workspace = true }
+entity-run = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

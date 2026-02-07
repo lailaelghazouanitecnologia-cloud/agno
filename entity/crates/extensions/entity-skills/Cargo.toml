@@ -1,0 +1,14 @@
+[package]
+name = "entity-skills"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+common-error = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tempfile = { workspace = true }

@@ -12,18 +12,16 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
-use common_error::{Error, ErrorKind, Result};
+use common_error::Result;
 use entity_context::ContextWindow;
 use entity_safety::{SafetyConfig, SafetyGuard, SafetyVerdict};
 use entity_session::{
     MessageRole, Session, SessionConfig, ToolCallRecord, TokenUsageSummary, Turn,
     TurnInput, TurnOutput, TurnStatus,
 };
-use entity_tools::{Tool, ToolParams, ToolRegistry, ToolResult};
+use entity_tools::{ToolParams, ToolRegistry};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Instant;
 
 /// Provider trait for LLM calls within the runner.
@@ -228,7 +226,7 @@ impl Runner {
                 }
             };
 
-            let mut turn_tokens = TokenUsageSummary {
+            let turn_tokens = TokenUsageSummary {
                 input_tokens: response.input_tokens,
                 output_tokens: response.output_tokens,
                 tool_tokens: 0,

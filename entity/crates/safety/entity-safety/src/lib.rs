@@ -4,9 +4,7 @@
 //! command allowlists/blocklists, rate limits, and requires approval for
 //! destructive operations.
 
-use common_error::{Error, ErrorKind, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 

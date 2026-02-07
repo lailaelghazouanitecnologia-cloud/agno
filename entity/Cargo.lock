@@ -304,6 +304,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "entity-hooks"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common-error",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "entity-knowledge"
 version = "0.1.0"
 dependencies = [
@@ -346,6 +357,31 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "tokio",
+]
+
+[[package]]
+name = "entity-reasoning"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "common-error",
+ "entity-run",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "entity-run"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "common-error",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -402,6 +438,31 @@ dependencies = [
  "entity-core",
  "serde",
  "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "entity-skills"
+version = "0.1.0"
+dependencies = [
+ "common-error",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "entity-team"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common-error",
+ "entity-core",
+ "entity-run",
+ "serde",
+ "serde_json",
+ "tokio",
  "uuid",
 ]
 
@@ -473,6 +534,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "entity-tracing"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "common-error",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "entity-vectordb"
 version = "0.1.0"
 dependencies = [
@@ -480,6 +554,20 @@ dependencies = [
  "common-error",
  "entity-embedder",
  "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "entity-workflow"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common-error",
+ "entity-core",
+ "entity-run",
  "serde",
  "serde_json",
  "tokio",

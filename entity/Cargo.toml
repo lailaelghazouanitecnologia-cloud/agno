@@ -1,28 +1,41 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/entity-core",
-    "crates/entities/entity-descriptor",
-    "crates/entities/entity-planner",
-    "crates/entities/entity-coder",
-    "crates/entity-tools",
-    "crates/entity-context",
-    "crates/entity-session",
-    "crates/entity-safety",
-    "crates/entity-runner",
-    "crates/entity-cli",
-    # Memory & Knowledge
-    "crates/entity-memory",
-    "crates/entity-embedder",
-    "crates/entity-vectordb",
-    "crates/entity-knowledge",
-    # Runtime & Advanced Tools
-    "crates/entity-runtime",
-    "crates/entity-guardrails",
-    "crates/entity-tools-fs",
-    "crates/entity-tools-git",
-    "crates/entity-tools-shell",
-    "crates/entity-tools-search",
+    # Core — foundation layer
+    "crates/core/entity-core",
+    "crates/core/entity-tracing",
+    "crates/core/entity-hooks",
+    "crates/core/entity-run",
+    # Agents — concrete agent implementations
+    "crates/agents/entity-descriptor",
+    "crates/agents/entity-planner",
+    "crates/agents/entity-coder",
+    # Tools — tool system
+    "crates/tools/entity-tools",
+    "crates/tools/entity-tools-fs",
+    "crates/tools/entity-tools-git",
+    "crates/tools/entity-tools-shell",
+    "crates/tools/entity-tools-search",
+    # Data — memory, embeddings, knowledge
+    "crates/data/entity-memory",
+    "crates/data/entity-embedder",
+    "crates/data/entity-vectordb",
+    "crates/data/entity-knowledge",
+    # Orchestration — execution and coordination
+    "crates/orchestration/entity-runtime",
+    "crates/orchestration/entity-context",
+    "crates/orchestration/entity-session",
+    "crates/orchestration/entity-runner",
+    "crates/orchestration/entity-team",
+    "crates/orchestration/entity-workflow",
+    # Safety — security policies
+    "crates/safety/entity-safety",
+    "crates/safety/entity-guardrails",
+    # Extensions — optional capabilities
+    "crates/extensions/entity-skills",
+    "crates/extensions/entity-reasoning",
+    # CLI — user interface
+    "crates/cli/entity-cli",
 ]
 
 [workspace.package]
@@ -30,48 +43,67 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace.dependencies]
+# Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
-thiserror = "1.0"
+# Async
 async-trait = "0.1"
 tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+# Error handling
+thiserror = "1.0"
+# Data
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
-glob = "0.3"
 regex = "1"
-crossterm = "0.27"
+glob = "0.3"
+urlencoding = "2.1"
+# HTTP
 reqwest = { version = "0.11", features = ["json"] }
+# DB
 tokio-rusqlite = "0.6"
+# Terminal
+crossterm = "0.27"
+# Observability
+tracing = "0.1"
+# Testing
+tempfile = "3"
+# Common (shared crates)
 common-error = { path = "../common/crates/common-error" }
 common-traits = { path = "../common/crates/common-traits" }
 common-config = { path = "../common/crates/common-config" }
 common-serde = { path = "../common/crates/common-serde" }
+# Roska (code analysis)
 roska-descriptor = { path = "../roska/crates/descriptor" }
 roska-generator = { path = "../roska/crates/generator" }
 roska-differ = { path = "../roska/crates/differ" }
 roska-processor = { path = "../roska/crates/processor" }
-entity-core = { path = "crates/entity-core" }
-entity-descriptor = { path = "crates/entities/entity-descriptor" }
-entity-planner = { path = "crates/entities/entity-planner" }
-entity-coder = { path = "crates/entities/entity-coder" }
-entity-tools = { path = "crates/entity-tools" }
-entity-context = { path = "crates/entity-context" }
-entity-session = { path = "crates/entity-session" }
-entity-safety = { path = "crates/entity-safety" }
-entity-runner = { path = "crates/entity-runner" }
-entity-cli = { path = "crates/entity-cli" }
-entity-memory = { path = "crates/entity-memory" }
-entity-embedder = { path = "crates/entity-embedder" }
-entity-vectordb = { path = "crates/entity-vectordb" }
-entity-knowledge = { path = "crates/entity-knowledge" }
-entity-runtime = { path = "crates/entity-runtime" }
-entity-guardrails = { path = "crates/entity-guardrails" }
-entity-tools-fs = { path = "crates/entity-tools-fs" }
-entity-tools-git = { path = "crates/entity-tools-git" }
-entity-tools-shell = { path = "crates/entity-tools-shell" }
-entity-tools-search = { path = "crates/entity-tools-search" }
-tracing = "0.1"
-futures = "0.3"
-urlencoding = "2.1"
-tempfile = "3"
+# Entity crates (internal deps)
+entity-core = { path = "crates/core/entity-core" }
+entity-tracing = { path = "crates/core/entity-tracing" }
+entity-hooks = { path = "crates/core/entity-hooks" }
+entity-run = { path = "crates/core/entity-run" }
+entity-descriptor = { path = "crates/agents/entity-descriptor" }
+entity-planner = { path = "crates/agents/entity-planner" }
+entity-coder = { path = "crates/agents/entity-coder" }
+entity-tools = { path = "crates/tools/entity-tools" }
+entity-tools-fs = { path = "crates/tools/entity-tools-fs" }
+entity-tools-git = { path = "crates/tools/entity-tools-git" }
+entity-tools-shell = { path = "crates/tools/entity-tools-shell" }
+entity-tools-search = { path = "crates/tools/entity-tools-search" }
+entity-memory = { path = "crates/data/entity-memory" }
+entity-embedder = { path = "crates/data/entity-embedder" }
+entity-vectordb = { path = "crates/data/entity-vectordb" }
+entity-knowledge = { path = "crates/data/entity-knowledge" }
+entity-runtime = { path = "crates/orchestration/entity-runtime" }
+entity-context = { path = "crates/orchestration/entity-context" }
+entity-session = { path = "crates/orchestration/entity-session" }
+entity-runner = { path = "crates/orchestration/entity-runner" }
+entity-team = { path = "crates/orchestration/entity-team" }
+entity-workflow = { path = "crates/orchestration/entity-workflow" }
+entity-safety = { path = "crates/safety/entity-safety" }
+entity-guardrails = { path = "crates/safety/entity-guardrails" }
+entity-skills = { path = "crates/extensions/entity-skills" }
+entity-reasoning = { path = "crates/extensions/entity-reasoning" }
+entity-cli = { path = "crates/cli/entity-cli" }

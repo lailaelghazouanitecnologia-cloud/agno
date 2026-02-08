@@ -676,20 +676,76 @@ fn feature_context_nodes(feature_id: &str, graph: &KnowledgeGraph) -> Vec<String
 // Dynamic Prompt Composition — from graph context, not templates
 // ═══════════════════════════════════════════════════════════════════════
 
+/// Extract the file paths associated with a feature from the graph.
+///
+/// Returns (feature_files, dependency_files).
+pub fn feature_file_context(
+    feature_id: &str,
+    graph: &KnowledgeGraph,
+) -> (Vec<String>, Vec<String>) {
+    let mut feature_files = Vec::new();
+    let mut dep_files = Vec::new();
+
+    if let Some(node) = graph.get_node(feature_id) {
+        // Feature's own files
+        if let Some(files_meta) = node.meta.get("files") {
+            for f in files_meta.split(',').filter(|s| !s.is_empty()) {
+                feature_files.push(f.trim().to_string());
+            }
+        }
+
+        // Dependency files (from depends_on features)
+        if let Some(deps_meta) = node.meta.get("depends_on") {
+            for dep_id in deps_meta.split(',').filter(|s| !s.is_empty()) {
+                if let Some(dep_node) = graph.get_node(dep_id.trim()) {
+                    if let Some(dep_files_meta) = dep_node.meta.get("files") {
+                        for f in dep_files_meta.split(',').filter(|s| !s.is_empty()) {
+                            let f = f.trim().to_string();
+                            if !dep_files.contains(&f) && !feature_files.contains(&f) {
+                                dep_files.push(f);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    (feature_files, dep_files)
+}
+
 /// Compose a prompt for an action using graph context and roska analysis.
-/// This replaces the old static template files with dynamic composition.
+///
+/// `file_context`: pre-scanned source code of the relevant files.
+/// `project_listing`: lightweight file listing of the whole project.
 pub fn compose_prompt(
     action: &Action,
     task: &str,
     graph: &KnowledgeGraph,
-    roska_context: &str,
+    file_context: &str,
+    project_listing: &str,
 ) -> String {
     let mut prompt = String::with_capacity(4096);
 
     // 1. Action-specific header with instructions
     prompt.push_str(&action_header(action, task));
 
-    // 2. Targeted graph context (only relevant nodes)
+    // 2. Project overview (lightweight file listing — always included)
+    if !project_listing.is_empty() {
+        prompt.push_str("\n## Project Structure\n\n");
+        prompt.push_str(project_listing);
+        prompt.push('\n');
+    }
+
+    // 3. Targeted file context (pre-scanned source code)
+    //    THIS IS THE KEY: the agent already has the code, no need for read_file tools
+    if !file_context.is_empty() {
+        prompt.push_str("\n## Source Code (pre-loaded — do NOT re-read these files)\n\n");
+        prompt.push_str(file_context);
+        prompt.push('\n');
+    }
+
+    // 4. Targeted graph context (only relevant nodes)
     if !action.context_nodes.is_empty() {
         prompt.push_str("\n## Context\n\n");
         for node_id in &action.context_nodes {
@@ -701,7 +757,7 @@ pub fn compose_prompt(
         }
     }
 
-    // 3. Specs / criteria for the targeted feature
+    // 5. Specs / criteria for the targeted feature
     match &action.kind {
         ActionKind::Implement { feature_id, .. }
         | ActionKind::Test { feature_id, .. }
@@ -729,16 +785,10 @@ pub fn compose_prompt(
         _ => {}
     }
 
-    // 4. Roska project analysis (depth-controlled, token-efficient)
-    if !roska_context.is_empty() {
-        prompt.push_str("## Project Analysis (roska)\n");
-        prompt.push_str(roska_context);
-        prompt.push_str("\n\n");
-    }
-
-    // 5. Rules (always, minimal)
+    // 6. Rules — tell agent its context is pre-loaded
     prompt.push_str(
         "## Rules\n\
+         - The source code above is ALREADY loaded — do NOT call read_file for files shown above\n\
          - You MUST use write_file to create/modify files\n\
          - Do NOT stop at analysis — IMPLEMENT the solution\n\
          - Keep working until this action is complete\n\
@@ -1476,7 +1526,7 @@ mod tests {
             estimated_tokens: 8000,
         };
 
-        let prompt = compose_prompt(&action, "Build a TS transpiler", &graph, "");
+        let prompt = compose_prompt(&action, "Build a TS transpiler", &graph, "", "");
         assert!(prompt.contains("Implement: Lexer"));
         assert!(prompt.contains("Build a TS transpiler"));
         assert!(prompt.contains("Tokenizes identifiers"));

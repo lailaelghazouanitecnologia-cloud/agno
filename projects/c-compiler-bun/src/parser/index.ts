@@ -1,1 +1,5 @@
-export { Parser } from "./parser.js";
+/**
+ * Parser module exports
+ */
+
+export * from './parser.js';

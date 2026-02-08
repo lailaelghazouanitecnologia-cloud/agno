@@ -1,155 +1,435 @@
 /**
- * IOVM - Handles printf and scanf I/O operations
+ * IOVM - Handles printf/scanf operations
  */
 
-import { BaseMicroVM } from './base-vm.js';
-import { ExecutionContext, ExecutionResult, VMInstruction, IOHandler } from '../core/interfaces.js';
-import { VMOperation, RuntimeValue, RuntimeType } from '../core/types.js';
+import { BaseVM } from './base-vm.js';
+import { ASTNode, ExecutionContext, ExecutionResult, ValueType, IOHandler } from '../core/interfaces.js';
+import { NodeType } from '../core/types.js';
 
-export class IOVM extends BaseMicroVM implements IOHandler {
-  readonly name = 'IOVM';
+/**
+ * IOVM - handles input/output operations
+ */
+export class IOVM extends BaseVM {
+  readonly name = 'io';
 
-  private outputBuffer: string[] = [];
-  private inputBuffer: string[] = [];
-  private inputIndex = 0;
+  private ioHandler: IOHandler;
 
   constructor() {
     super();
-    this.registerOperation(VMOperation.PRINT);
-    this.registerOperation(VMOperation.READ);
+    this.ioHandler = this.createIOHandler();
   }
 
-  protected executeInstruction(
-    instruction: VMInstruction,
-    context: ExecutionContext
-  ): ExecutionResult {
-    const { operation, operands } = instruction;
+  initialize?(context?: unknown): void {
+    this.ioHandler = this.createIOHandler();
+  }
 
-    switch (operation) {
-      case VMOperation.PRINT:
-        return this.executePrint(operands, context);
+  execute(node: ASTNode, context: ExecutionContext): ExecutionResult {
+    try {
+      // Handle function calls to printf/scanf
+      if (node.type === NodeType.CALL_EXPR) {
+        const call = node as { callee: ASTNode; arguments: ASTNode[] };
 
-      case VMOperation.READ:
-        return this.executeRead(operands, context);
+        if (call.callee.type === NodeType.IDENTIFIER_EXPR) {
+          const funcName = (call.callee as { name: string }).name;
 
-      default:
+          if (funcName === 'printf') {
+            return this.handlePrintf(call.arguments, context);
+          }
+
+          if (funcName === 'scanf') {
+            return this.handleScanf(call.arguments, context);
+          }
+        }
+      }
+
+      return {
+        success: false,
+        error: `IOVM cannot handle node type: ${node.type}`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  canHandle(node: ASTNode): boolean {
+    if (node.type !== NodeType.CALL_EXPR) {
+      return false;
+    }
+
+    const call = node as { callee: ASTNode };
+    if (call.callee.type !== NodeType.IDENTIFIER_EXPR) {
+      return false;
+    }
+
+    const funcName = (call.callee as { name: string }).name;
+    return funcName === 'printf' || funcName === 'scanf';
+  }
+
+  private handlePrintf(args: ASTNode[], context: ExecutionContext): ExecutionResult {
+    if (args.length === 0) {
+      return {
+        success: false,
+        error: 'printf requires at least one argument',
+      };
+    }
+
+    // Get format string
+    const formatResult = this.evaluateArgument(args[0], context);
+    if (!formatResult.success) {
+      return formatResult;
+    }
+
+    const format = formatResult.value! as string;
+
+    // Evaluate remaining arguments
+    const values: ValueType[] = [];
+    for (let i = 1; i < args.length; i++) {
+      const argResult = this.evaluateArgument(args[i], context);
+      if (!argResult.success) {
+        return argResult;
+      }
+      values.push(argResult.value!);
+    }
+
+    // Format the output
+    const output = this.formatString(format, values);
+
+    // Write to context output
+    context.output.push(output);
+
+    return {
+      success: true,
+      value: output.length, // Return number of characters written
+    };
+  }
+
+  private handleScanf(args: ASTNode[], context: ExecutionContext): ExecutionResult {
+    if (args.length === 0) {
+      return {
+        success: false,
+        error: 'scanf requires at least one argument',
+      };
+    }
+
+    // Get format string
+    const formatResult = this.evaluateArgument(args[0], context);
+    if (!formatResult.success) {
+      return formatResult;
+    }
+
+    const format = formatResult.value! as string;
+
+    // Get input from context
+    if (context.input.length === 0) {
+      return {
+        success: false,
+        error: 'No input available for scanf',
+      };
+    }
+
+    const inputLine = context.input.shift()!;
+
+    // Parse input according to format
+    const values = this.parseInput(format, inputLine);
+
+    // Assign values to variables
+    for (let i = 0; i < Math.min(values.length, args.length - 1); i++) {
+      const arg = args[i + 1];
+
+      // Handle address expressions (e.g., &x)
+      if (arg.type === NodeType.ADDRESS_EXPR) {
+        const addrExpr = arg as { operand: ASTNode };
+        if (addrExpr.operand.type === NodeType.IDENTIFIER_EXPR) {
+          const name = (addrExpr.operand as { name: string }).name;
+          context.memory.set(name, values[i]);
+        }
+      }
+      // Handle identifier expressions (for simplicity)
+      else if (arg.type === NodeType.IDENTIFIER_EXPR) {
+        const name = (arg as { name: string }).name;
+        context.memory.set(name, values[i]);
+      }
+    }
+
+    return {
+      success: true,
+      value: values.length, // Return number of items read
+    };
+  }
+
+  private evaluateArgument(node: ASTNode, context: ExecutionContext): ExecutionResult {
+    // Handle literals
+    if (node.type === NodeType.INTEGER_LITERAL) {
+      return { success: true, value: (node as { value: number }).value };
+    }
+    if (node.type === NodeType.FLOAT_LITERAL) {
+      return { success: true, value: (node as { value: number }).value };
+    }
+    if (node.type === NodeType.CHAR_LITERAL) {
+      return { success: true, value: (node as { value: string }).value };
+    }
+    if (node.type === NodeType.STRING_LITERAL) {
+      return { success: true, value: (node as { value: string }).value };
+    }
+
+    // Handle identifiers
+    if (node.type === NodeType.IDENTIFIER_EXPR) {
+      const name = (node as { name: string }).name;
+      const value = context.memory.get(name);
+      if (value === undefined) {
         return {
           success: false,
-          error: `Unknown I/O operation: ${operation}`,
+          error: `Undefined variable: ${name}`,
         };
-    }
-  }
-
-  private executePrint(operands: unknown[], context: ExecutionContext): ExecutionResult {
-    if (operands.length < 1) {
-      return {
-        success: false,
-        error: 'PRINT operation requires a value',
-      };
+      }
+      return { success: true, value };
     }
 
-    const value = this.getRuntimeValue(operands[0]);
-    if (!value) {
-      return {
-        success: false,
-        error: 'Invalid value for PRINT operation',
-      };
-    }
-
-    this.print(value);
-
+    // For other expressions, we'd need to delegate to appropriate VMs
     return {
-      success: true,
+      success: false,
+      error: `Cannot evaluate argument node type: ${node.type}`,
     };
   }
 
-  private executeRead(operands: unknown[], context: ExecutionContext): ExecutionResult {
-    const value = this.read();
+  private formatString(format: string, values: ValueType[]): string {
+    let result = '';
+    let valueIndex = 0;
 
-    if (!value) {
-      return {
-        success: false,
-        error: 'No input available for READ operation',
-      };
-    }
+    for (let i = 0; i < format.length; i++) {
+      const char = format[i];
 
-    return {
-      success: true,
-      value,
-    };
-  }
+      if (char === '%' && i + 1 < format.length) {
+        const specifier = format[i + 1];
+        i++; // Skip the specifier
 
-  // IOHandler interface implementation
-
-  print(value: RuntimeValue): void {
-    let output: string;
-    switch (value.type) {
-      case RuntimeType.INT:
-        output = Math.trunc(Number(value.value)).toString();
-        break;
-      case RuntimeType.FLOAT:
-        output = Number(value.value).toString();
-        break;
-      case RuntimeType.CHAR:
-        if (typeof value.value === 'string') {
-          output = value.value;
-        } else {
-          output = String.fromCharCode(Number(value.value));
+        if (valueIndex >= values.length) {
+          result += '%' + specifier;
+          continue;
         }
-        break;
-      case RuntimeType.POINTER:
-        output = `0x${Number(value.value).toString(16)}`;
-        break;
-      default:
-        output = String(value.value);
+
+        const value = values[valueIndex++];
+
+        switch (specifier) {
+          case 'd':
+          case 'i':
+            result += Math.floor(Number(value));
+            break;
+          case 'f':
+            result += Number(value).toFixed(6);
+            break;
+          case 'c':
+            if (typeof value === 'number') {
+              result += String.fromCharCode(value);
+            } else {
+              result += String(value)[0] || '';
+            }
+            break;
+          case 's':
+            result += String(value);
+            break;
+          case 'x':
+            result += Math.floor(Number(value)).toString(16);
+            break;
+          case 'X':
+            result += Math.floor(Number(value)).toString(16).toUpperCase();
+            break;
+          case '%':
+            result += '%';
+            break;
+          default:
+            result += '%' + specifier;
+        }
+      } else {
+        result += char;
+      }
     }
-    this.outputBuffer.push(output);
+
+    return result;
   }
 
-  read(): RuntimeValue | undefined {
-    if (this.inputIndex >= this.inputBuffer.length) {
-      return undefined;
+  private parseInput(format: string, input: string): ValueType[] {
+    const values: ValueType[] = [];
+    const tokens = input.trim().split(/\s+/);
+    let tokenIndex = 0;
+
+    for (let i = 0; i < format.length; i++) {
+      const char = format[i];
+
+      if (char === '%' && i + 1 < format.length) {
+        const specifier = format[i + 1];
+        i++; // Skip the specifier
+
+        if (specifier === '%') {
+          continue;
+        }
+
+        if (tokenIndex >= tokens.length) {
+          break;
+        }
+
+        const token = tokens[tokenIndex++];
+
+        switch (specifier) {
+          case 'd':
+          case 'i':
+            values.push(parseInt(token, 10));
+            break;
+          case 'f':
+            values.push(parseFloat(token));
+            break;
+          case 'c':
+            values.push(token[0] || '');
+            break;
+          case 's':
+            values.push(token);
+            break;
+          case 'x':
+            values.push(parseInt(token, 16));
+            break;
+        }
+      }
     }
 
-    const input = this.inputBuffer[this.inputIndex++];
-    const parsed = parseInt(input, 10);
+    return values;
+  }
 
-    if (isNaN(parsed)) {
-      return {
-        type: RuntimeType.CHAR,
-        value: input,
-      };
-    }
+  private createIOHandler(): IOHandler {
+    const output: string[] = [];
+    let input: string[] = [];
 
     return {
-      type: RuntimeType.INT,
-      value: parsed,
+      write(format: string, args: ValueType[]): void {
+        output.push(this.formatString(format, args));
+      },
+
+      read(format: string): ValueType[] {
+        if (input.length === 0) {
+          return [];
+        }
+        const line = input.shift()!;
+        return this.parseInput(format, line);
+      },
+
+      getOutput(): string[] {
+        return [...output];
+      },
+
+      clearOutput(): void {
+        output.length = 0;
+      },
+
+      setInput(newInput: string[]): void {
+        input = [...newInput];
+      },
+
+      formatString(format: string, args: ValueType[]): string {
+        // Same implementation as formatString method
+        let result = '';
+        let argIndex = 0;
+
+        for (let i = 0; i < format.length; i++) {
+          const char = format[i];
+
+          if (char === '%' && i + 1 < format.length) {
+            const specifier = format[i + 1];
+            i++;
+
+            if (argIndex >= args.length) {
+              result += '%' + specifier;
+              continue;
+            }
+
+            const value = args[argIndex++];
+
+            switch (specifier) {
+              case 'd':
+              case 'i':
+                result += Math.floor(Number(value));
+                break;
+              case 'f':
+                result += Number(value).toFixed(6);
+                break;
+              case 'c':
+                result += String(value)[0] || '';
+                break;
+              case 's':
+                result += String(value);
+                break;
+              case '%':
+                result += '%';
+                break;
+              default:
+                result += '%' + specifier;
+            }
+          } else {
+            result += char;
+          }
+        }
+
+        return result;
+      },
+
+      parseInput(format: string, input: string): ValueType[] {
+        // Same implementation as parseInput method
+        const values: ValueType[] = [];
+        const tokens = input.trim().split(/\s+/);
+        let tokenIndex = 0;
+
+        for (let i = 0; i < format.length; i++) {
+          const char = format[i];
+
+          if (char === '%' && i + 1 < format.length) {
+            const specifier = format[i + 1];
+            i++;
+
+            if (specifier === '%') {
+              continue;
+            }
+
+            if (tokenIndex >= tokens.length) {
+              break;
+            }
+
+            const token = tokens[tokenIndex++];
+
+            switch (specifier) {
+              case 'd':
+              case 'i':
+                values.push(parseInt(token, 10));
+                break;
+              case 'f':
+                values.push(parseFloat(token));
+                break;
+              case 'c':
+                values.push(token[0] || '');
+                break;
+              case 's':
+                values.push(token);
+                break;
+            }
+          }
+        }
+
+        return values;
+      },
     };
   }
 
-  getOutput(): string[] {
-    return [...this.outputBuffer];
+  /**
+   * Get the IO handler
+   */
+  getIOHandler(): IOHandler {
+    return this.ioHandler;
   }
 
-  clearOutput(): void {
-    this.outputBuffer = [];
-  }
-
-  setInput(input: string[]): void {
-    this.inputBuffer = input;
-    this.inputIndex = 0;
-  }
-
-  reset(): void {
-    this.outputBuffer = [];
-    this.inputBuffer = [];
-    this.inputIndex = 0;
-  }
-
-  private getRuntimeValue(operand: unknown): RuntimeValue | undefined {
-    if (typeof operand === 'object' && operand !== null && 'type' in operand && 'value' in operand) {
-      return operand as RuntimeValue;
-    }
-    return undefined;
+  /**
+   * Set the IO handler
+   */
+  setIOHandler(handler: IOHandler): void {
+    this.ioHandler = handler;
   }
 }

@@ -1,101 +1,90 @@
-import { MicroVM, ASTNode, VMContext, VMValue } from "../interfaces/index.js";
+/**
+ * VM Registry - Central dispatcher for all MicroVMs
+ */
+
+import { MicroVM } from './MicroVM.js';
+import { ASTNode, ExecutionContext, ExecutionResult } from '../core/interfaces.js';
 
 /**
- * MicroVM Registry - Central dispatcher for all specialized VMs
+ * VM Registry - manages and dispatches to specialized VMs
  */
-export class MicroVMRegistry {
+export class VMRegistry {
   private vms: Map<string, MicroVM> = new Map();
-  
+
   /**
-   * Register a MicroVM
+   * Register a VM
    */
-  public register(vm: MicroVM): void {
+  register(vm: MicroVM): void {
     this.vms.set(vm.name, vm);
-    vm.initialize();
   }
-  
+
   /**
-   * Get a registered MicroVM by name
+   * Unregister a VM by name
    */
-  public get(name: string): MicroVM | undefined {
+  unregister(name: string): void {
+    this.vms.delete(name);
+  }
+
+  /**
+   * Get a VM by name
+   */
+  get(name: string): MicroVM | undefined {
     return this.vms.get(name);
   }
-  
+
+  /**
+   * Find a VM that can handle the given node
+   */
+  find(node: ASTNode): MicroVM | undefined {
+    for (const vm of this.vms.values()) {
+      if (vm.canHandle(node)) {
+        return vm;
+      }
+    }
+    return undefined;
+  }
+
   /**
    * Execute a node using the appropriate VM
    */
-  public execute(node: ASTNode, context: VMContext): VMValue | void {
-    const vmName = this.getVMNameForNode(node.type);
-    const vm = this.vms.get(vmName);
+  execute(node: ASTNode, context: ExecutionContext): ExecutionResult {
+    const vm = this.find(node);
     
     if (!vm) {
-      throw new Error(`No VM registered for node type: ${node.type}`);
+      return {
+        success: false,
+        error: `No VM found to handle node type: ${node.type}`,
+      };
     }
-    
+
     return vm.execute(node, context);
   }
-  
+
   /**
-   * Map node types to VM names
+   * Get all registered VMs
    */
-  private getVMNameForNode(nodeType: string): string {
-    // Arithmetic operations
-    if (nodeType.includes("BINARY_EXPR") || nodeType.includes("UNARY_EXPR")) {
-      return "ArithmeticVM";
-    }
-    
-    // Comparison operations
-    if (nodeType === "BINARY_EXPR") {
-      return "ComparisonVM";
-    }
-    
-    // Control flow
-    if (nodeType.includes("IF_STMT") || 
-        nodeType.includes("WHILE_STMT") || 
-        nodeType.includes("FOR_STMT")) {
-      return "ControlFlowVM";
-    }
-    
-    // Functions
-    if (nodeType.includes("FUNCTION") || 
-        nodeType.includes("CALL_EXPR") || 
-        nodeType.includes("RETURN_STMT")) {
-      return "FunctionVM";
-    }
-    
-    // Memory/Variables
-    if (nodeType.includes("DECL_STMT") || 
-        nodeType.includes("IDENTIFIER_EXPR") || 
-        nodeType.includes("ASSIGN_EXPR") ||
-        nodeType.includes("ARRAY_ACCESS_EXPR") ||
-        nodeType.includes("POINTER_DEREF_EXPR") ||
-        nodeType.includes("ADDRESS_OF_EXPR")) {
-      return "MemoryVM";
-    }
-    
-    // I/O
-    if (nodeType.includes("CALL_EXPR")) {
-      // Check if it's printf/scanf
-      return "IOVM";
-    }
-    
-    // Default to MemoryVM for most things
-    return "MemoryVM";
+  getAll(): MicroVM[] {
+    return Array.from(this.vms.values());
   }
-  
+
   /**
-   * Reset all VMs
+   * Clear all VMs
    */
-  public reset(): void {
-    for (const vm of this.vms.values()) {
-      vm.reset();
-    }
+  clear(): void {
+    this.vms.clear();
   }
-  
+
   /**
-   * Get all registered VM names
+   * Check if a VM is registered
    */
-  public getRegisteredVMs(): string[] {
-    return Array.from(this.vms.keys());
+  has(name: string): boolean {
+    return this.vms.has(name);
+  }
+
+  /**
+   * Get the number of registered VMs
+   */
+  size(): number {
+    return this.vms.size;
   }
 }

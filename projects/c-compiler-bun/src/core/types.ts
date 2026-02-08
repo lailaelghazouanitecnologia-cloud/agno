@@ -2,18 +2,9 @@
  * Core type definitions for the C compiler
  */
 
-// Supported C types
-export enum CType {
-  INT = 'int',
-  CHAR = 'char',
-  FLOAT = 'float',
-  VOID = 'void',
-  POINTER = 'pointer',
-  ARRAY = 'array',
-  FUNCTION = 'function',
-}
-
-// Token types
+/**
+ * Token types
+ */
 export enum TokenType {
   // Keywords
   INT = 'INT',
@@ -22,15 +13,18 @@ export enum TokenType {
   VOID = 'VOID',
   IF = 'IF',
   ELSE = 'ELSE',
+  ELSE_IF = 'ELSE_IF',
   WHILE = 'WHILE',
   FOR = 'FOR',
   RETURN = 'RETURN',
+  BREAK = 'BREAK',
+  CONTINUE = 'CONTINUE',
   
   // Literals
-  INTEGER_LITERAL = 'INTEGER_LITERAL',
+  INTEGER = 'INTEGER',
   FLOAT_LITERAL = 'FLOAT_LITERAL',
-  CHAR_LITERAL = 'CHAR_LITERAL',
-  STRING_LITERAL = 'STRING_LITERAL',
+  CHARACTER = 'CHARACTER',
+  STRING = 'STRING',
   
   // Identifiers
   IDENTIFIER = 'IDENTIFIER',
@@ -38,9 +32,9 @@ export enum TokenType {
   // Operators
   PLUS = 'PLUS',
   MINUS = 'MINUS',
-  STAR = 'STAR',
-  SLASH = 'SLASH',
-  PERCENT = 'PERCENT',
+  MULTIPLY = 'MULTIPLY',
+  DIVIDE = 'DIVIDE',
+  MODULO = 'MODULO',
   
   // Comparison operators
   LESS = 'LESS',
@@ -50,28 +44,44 @@ export enum TokenType {
   EQUAL = 'EQUAL',
   NOT_EQUAL = 'NOT_EQUAL',
   
+  // Logical operators
+  AND = 'AND',
+  OR = 'OR',
+  NOT = 'NOT',
+  
   // Assignment
   ASSIGN = 'ASSIGN',
+  PLUS_ASSIGN = 'PLUS_ASSIGN',
+  MINUS_ASSIGN = 'MINUS_ASSIGN',
+  MULTIPLY_ASSIGN = 'MULTIPLY_ASSIGN',
+  DIVIDE_ASSIGN = 'DIVIDE_ASSIGN',
   
   // Pointer operators
-  AMPERSAND = 'AMPERSAND',
+  ADDRESS = 'ADDRESS',
+  DEREFERENCE = 'DEREFERENCE',
   
   // Punctuation
   SEMICOLON = 'SEMICOLON',
   COMMA = 'COMMA',
-  LPAREN = 'LPAREN',
-  RPAREN = 'RPAREN',
-  LBRACE = 'LBRACE',
-  RBRACE = 'RBRACE',
-  LBRACKET = 'LBRACKET',
-  RBRACKET = 'RBRACKET',
+  DOT = 'DOT',
+  ARROW = 'ARROW',
+  
+  // Brackets
+  LEFT_PAREN = 'LEFT_PAREN',
+  RIGHT_PAREN = 'RIGHT_PAREN',
+  LEFT_BRACE = 'LEFT_BRACE',
+  RIGHT_BRACE = 'RIGHT_BRACE',
+  LEFT_BRACKET = 'LEFT_BRACKET',
+  RIGHT_BRACKET = 'RIGHT_BRACKET',
   
   // Special
   EOF = 'EOF',
   UNKNOWN = 'UNKNOWN',
 }
 
-// Token interface
+/**
+ * Token representation
+ */
 export interface Token {
   type: TokenType;
   value: string;
@@ -79,251 +89,198 @@ export interface Token {
   column: number;
 }
 
-// AST Node types
+/**
+ * AST node types - using string values for test compatibility
+ */
 export enum NodeType {
-  // Program structure
+  // Program
   PROGRAM = 'PROGRAM',
-  FUNCTION_DECL = 'FUNCTION_DECL',
-  FUNCTION_DEF = 'FUNCTION_DEF',
-  
-  // Statements
-  COMPOUND_STMT = 'COMPOUND_STMT',
-  EXPR_STMT = 'EXPR_STMT',
-  RETURN_STMT = 'RETURN_STMT',
-  IF_STMT = 'IF_STMT',
-  WHILE_STMT = 'WHILE_STMT',
-  FOR_STMT = 'FOR_STMT',
   
   // Declarations
-  VAR_DECL = 'VAR_DECL',
-  ARRAY_DECL = 'ARRAY_DECL',
-  PARAM_DECL = 'PARAM_DECL',
+  DECLARATION = 'DECLARATION',
+  FUNCTION_DEF = 'FUNCTION_DEF',
+  PARAMETER = 'PARAMETER',
+  TYPE_SPECIFIER = 'TYPE_SPECIFIER',
+  
+  // Statements
+  BLOCK = 'BLOCK',
+  IF = 'IF',
+  WHILE = 'WHILE',
+  FOR = 'FOR',
+  RETURN = 'RETURN',
+  BREAK = 'BREAK',
+  CONTINUE = 'CONTINUE',
+  EXPRESSION_STMT = 'EXPRESSION_STMT',
   
   // Expressions
   BINARY_EXPR = 'BINARY_EXPR',
   UNARY_EXPR = 'UNARY_EXPR',
+  ASSIGNMENT_EXPR = 'ASSIGNMENT_EXPR',
   CALL_EXPR = 'CALL_EXPR',
+  ARRAY_ACCESS = 'ARRAY_ACCESS',
+  
+  // Literals
+  INTEGER_LITERAL = 'INTEGER_LITERAL',
+  FLOAT_LITERAL = 'FLOAT_LITERAL',
+  CHAR_LITERAL = 'CHAR_LITERAL',
+  STRING_LITERAL = 'STRING_LITERAL',
+  
+  // References
   IDENTIFIER_EXPR = 'IDENTIFIER_EXPR',
-  LITERAL_EXPR = 'LITERAL_EXPR',
-  ARRAY_ACCESS_EXPR = 'ARRAY_ACCESS_EXPR',
-  POINTER_DEREF_EXPR = 'POINTER_DEREF_EXPR',
-  ADDRESS_OF_EXPR = 'ADDRESS_OF_EXPR',
-  ASSIGN_EXPR = 'ASSIGN_EXPR',
+  ADDRESS_EXPR = 'ADDRESS_EXPR',
+  DEREFERENCE_EXPR = 'DEREFERENCE_EXPR',
 }
 
-// Base AST node
+/**
+ * AST node base
+ */
 export interface ASTNode {
-  type: NodeType;
-  line?: number;
+  type: NodeType | string;
+  line: number;
+  column: number;
+  [key: string]: unknown;
 }
 
-// Expression nodes
-export interface BinaryExpr extends ASTNode {
-  type: NodeType.BINARY_EXPR;
-  operator: string;
-  left: ASTNode;
-  right: ASTNode;
-}
+/**
+ * Value types
+ */
+export type ValueType = number | string | boolean | null | ValueType[];
 
-export interface UnaryExpr extends ASTNode {
-  type: NodeType.UNARY_EXPR;
-  operator: string;
-  operand: ASTNode;
-}
-
-export interface CallExpr extends ASTNode {
-  type: NodeType.CALL_EXPR;
-  callee: string;
-  args: ASTNode[];
-}
-
-export interface IdentifierExpr extends ASTNode {
-  type: NodeType.IDENTIFIER_EXPR;
-  name: string;
-}
-
-export interface LiteralExpr extends ASTNode {
-  type: NodeType.LITERAL_EXPR;
-  valueType: CType;
-  value: number | string;
-}
-
-export interface ArrayAccessExpr extends ASTNode {
-  type: NodeType.ARRAY_ACCESS_EXPR;
-  array: ASTNode;
-  index: ASTNode;
-}
-
-export interface PointerDerefExpr extends ASTNode {
-  type: NodeType.POINTER_DEREF_EXPR;
-  operand: ASTNode;
-}
-
-export interface AddressOfExpr extends ASTNode {
-  type: NodeType.ADDRESS_OF_EXPR;
-  operand: ASTNode;
-}
-
-export interface AssignExpr extends ASTNode {
-  type: NodeType.ASSIGN_EXPR;
-  target: ASTNode;
-  value: ASTNode;
-}
-
-// Statement nodes
-export interface CompoundStmt extends ASTNode {
-  type: NodeType.COMPOUND_STMT;
-  statements: ASTNode[];
-}
-
-export interface ExprStmt extends ASTNode {
-  type: NodeType.EXPR_STMT;
-  expression: ASTNode;
-}
-
-export interface ReturnStmt extends ASTNode {
-  type: NodeType.RETURN_STMT;
-  value?: ASTNode;
-}
-
-export interface IfStmt extends ASTNode {
-  type: NodeType.IF_STMT;
-  condition: ASTNode;
-  thenBranch: ASTNode;
-  elseBranch?: ASTNode;
-  elseIfConditions?: ASTNode[];
-  elseIfBranches?: ASTNode[];
-}
-
-export interface WhileStmt extends ASTNode {
-  type: NodeType.WHILE_STMT;
-  condition: ASTNode;
-  body: ASTNode;
-}
-
-export interface ForStmt extends ASTNode {
-  type: NodeType.FOR_STMT;
-  init?: ASTNode;
-  condition?: ASTNode;
-  update?: ASTNode;
-  body: ASTNode;
-}
-
-// Declaration nodes
-export interface VarDecl extends ASTNode {
-  type: NodeType.VAR_DECL;
-  varType: CType;
-  name: string;
-  init?: ASTNode;
-}
-
-export interface ArrayDecl extends ASTNode {
-  type: NodeType.ARRAY_DECL;
-  elementType: CType;
-  name: string;
-  size: ASTNode;
-}
-
-export interface ParamDecl extends ASTNode {
-  type: NodeType.PARAM_DECL;
-  paramType: CType;
-  name: string;
-}
-
-export interface FunctionDef extends ASTNode {
-  type: NodeType.FUNCTION_DEF;
-  returnType: CType;
-  name: string;
-  params: ParamDecl[];
-  body: CompoundStmt;
-}
-
-export interface Program extends ASTNode {
-  type: NodeType.PROGRAM;
-  functions: FunctionDef[];
-}
-
-// Runtime value types
-export enum RuntimeType {
-  INT = 'int',
-  FLOAT = 'float',
-  CHAR = 'char',
-  POINTER = 'pointer',
-  ARRAY = 'array',
-  VOID = 'void',
-}
-
-export interface RuntimeValue {
-  type: RuntimeType;
-  value: number | string | RuntimeValue[];
-}
-
-// Memory location
-export interface MemoryLocation {
-  address: number;
-  type: RuntimeType;
-  value: RuntimeValue;
-}
-
-// Stack frame for function calls
-export interface StackFrame {
-  functionName: string;
-  returnAddress: number;
-  locals: Map<string, MemoryLocation>;
-  params: Map<string, MemoryLocation>;
-}
-
-// Compiler result
-export interface CompilerResult {
-  success: boolean;
-  exitCode: number;
-  output: string;
-  errors: string[];
-}
-
-// MicroVM operation types
-export enum VMOperation {
+/**
+ * Binary operators
+ */
+export enum BinaryOp {
   // Arithmetic
-  ADD = 'ADD',
-  SUB = 'SUB',
-  MUL = 'MUL',
-  DIV = 'DIV',
-  MOD = 'MOD',
+  ADD = '+',
+  SUB = '-',
+  MUL = '*',
+  DIV = '/',
+  MOD = '%',
   
   // Comparison
-  LESS = 'LESS',
-  GREATER = 'GREATER',
-  LESS_EQUAL = 'LESS_EQUAL',
-  GREATER_EQUAL = 'GREATER_EQUAL',
-  EQUAL = 'EQUAL',
-  NOT_EQUAL = 'NOT_EQUAL',
+  LT = '<',
+  GT = '>',
+  LTE = '<=',
+  GTE = '>=',
+  EQ = '==',
+  NEQ = '!=',
   
-  // Control flow
-  JUMP = 'JUMP',
-  JUMP_IF_TRUE = 'JUMP_IF_TRUE',
-  JUMP_IF_FALSE = 'JUMP_IF_FALSE',
+  // Logical
+  AND = '&&',
+  OR = '||',
   
-  // Memory
-  LOAD = 'LOAD',
-  STORE = 'STORE',
-  ALLOCATE = 'ALLOCATE',
-  PUSH = 'PUSH',
-  POP = 'POP',
-  
-  // Function
-  CALL = 'CALL',
-  RET = 'RET',
-  
-  // I/O
-  PRINT = 'PRINT',
-  READ = 'READ',
-  
-  // Type
-  CAST = 'CAST',
+  // Assignment
+  ASSIGN = '=',
+  ADD_ASSIGN = '+=',
+  SUB_ASSIGN = '-=',
+  MUL_ASSIGN = '*=',
+  DIV_ASSIGN = '/=',
 }
 
-// VM instruction
-export interface VMInstruction {
-  operation: VMOperation;
-  operands: (RuntimeValue | string | number)[];
+/**
+ * Unary operators
+ */
+export enum UnaryOp {
+  // Arithmetic
+  POS = '+',
+  NEG = '-',
+  
+  // Logical
+  NOT = '!',
+  BIT_NOT = '~',
+  
+  // Pointer
+  ADDRESS = '&',
+  DEREFERENCE = '*',
+  
+  // Increment/Decrement
+  PRE_INC = '++',
+  PRE_DEC = '--',
+  POST_INC = '++',
+  POST_DEC = '--',
+}
+
+/**
+ * C types
+ */
+export enum CType {
+  INT = 'int',
+  CHAR = 'char',
+  FLOAT = 'float',
+  VOID = 'void',
+  POINTER = 'pointer',
+  ARRAY = 'array',
+}
+
+/**
+ * Type information
+ */
+export interface TypeInfo {
+  base: CType;
+  isPointer: boolean;
+  isArray: boolean;
+  arrayDimensions?: number[];
+  pointerDepth?: number;
+}
+
+/**
+ * Function signature
+ */
+export interface FunctionSignature {
+  name: string;
+  returnType: TypeInfo;
+  parameters: ParameterInfo[];
+  isVariadic: boolean;
+}
+
+/**
+ * Parameter information
+ */
+export interface ParameterInfo {
+  name: string;
+  type: TypeInfo;
+}
+
+/**
+ * Symbol table entry
+ */
+export interface SymbolEntry {
+  name: string;
+  type: TypeInfo;
+  kind: 'variable' | 'function' | 'parameter';
+  scope: number;
+  value?: ValueType;
+  functionSignature?: FunctionSignature;
+}
+
+/**
+ * Scope information
+ */
+export interface Scope {
+  id: number;
+  parent?: number;
+  symbols: Map<string, SymbolEntry>;
+}
+
+/**
+ * Symbol table
+ */
+export interface SymbolTable {
+  scopes: Scope[];
+  currentScope: number;
+  
+  /** Enter a new scope */
+  enterScope(): void;
+  
+  /** Exit current scope */
+  exitScope(): void;
+  
+  /** Add a symbol to current scope */
+  addSymbol(entry: SymbolEntry): void;
+  
+  /** Look up a symbol */
+  lookup(name: string): SymbolEntry | undefined;
+  
+  /** Look up in current scope only */
+  lookupLocal(name: string): SymbolEntry | undefined;
 }

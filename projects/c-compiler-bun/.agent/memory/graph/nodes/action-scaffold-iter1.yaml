@@ -2,36 +2,36 @@ node:
   id: action-scaffold-iter1
   name: 'Action: scaffold'
   kind: concept
-  description: 'Action: scaffold | depth: depth:overview | context_nodes: [plan-core-interfaces, plan-lexer, plan-parser, plan-microvm-registry, plan-arithmetic-vm, plan-comparison-vm, plan-controlflow-vm, plan-function-vm, plan-memory-vm, plan-io-vm, plan-type-vm, plan-compiler, plan-cli, plan-tests, plan-config] | tokens: 272037in+30748out | 100.6s | FAIL'
+  description: 'Action: scaffold | depth: depth:overview | context_nodes: [plan-m001, plan-m002, plan-m003, plan-m004, plan-m005, plan-m006, plan-m007, plan-m008, plan-m009, plan-m010, plan-m011, plan-m012, plan-m013, plan-m014] | tokens: 226412in+29675out | 85.3s | FAIL'
   tags:
   - action-context
   - scaffold
   meta:
-    duration_secs: '100.6'
-    prompt_tokens: '272037'
-    completion_tokens: '30748'
-    iteration: '1'
+    completion_tokens: '29675'
     roska_depth: depth:overview
     success: 'false'
+    iteration: '1'
+    duration_secs: '85.3'
+    prompt_tokens: '226412'
   weight: 0.5
   conversation_count: 1
   decision_count: 0
-  created_at: 1770573392
-  updated_at: 1770573392
+  created_at: 1770579460
+  updated_at: 1770579460
 conversations:
-- id: k-1770573392-2
+- id: k-1770579460-2
   node_id: action-scaffold-iter1
-  topic: 'Action: scaffold | depth: depth:overview | context_nodes: [plan-core-interfaces, plan-lexer, plan-parser, plan-microvm-registry, plan-arithmetic-vm, plan-comparison-vm, plan-controlflow-vm, plan-function-vm, plan-memory-vm, plan-io-vm, plan-type-vm, plan-compiler, plan-cli, plan-tests, plan-config] | tokens: 272037in+30748out | 100.6s | FAIL'
+  topic: 'Action: scaffold | depth: depth:overview | context_nodes: [plan-m001, plan-m002, plan-m003, plan-m004, plan-m005, plan-m006, plan-m007, plan-m008, plan-m009, plan-m010, plan-m011, plan-m012, plan-m013, plan-m014] | tokens: 226412in+29675out | 85.3s | FAIL'
   messages:
   - role: system
     content: roska_depth=depth:overview estimated_tokens=3000 priority=0.95
-    timestamp: 1770573392
+    timestamp: 1770579460
   - role: agent
-    content: prompt_tokens=272037 completion_tokens=30748 duration_secs=100.6 success=false
-    timestamp: 1770573392
+    content: prompt_tokens=226412 completion_tokens=29675 duration_secs=85.3 success=false
+    timestamp: 1770579460
   summary: null
   outcomes: []
-  created_at: 1770573392
-  updated_at: 1770573392
+  created_at: 1770579460
+  updated_at: 1770579460
 decisions: []
 specs: []

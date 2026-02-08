@@ -1,256 +1,242 @@
 /**
- * Core interfaces for the micro-VM architecture
+ * Core interfaces for the C compiler micro-VM architecture
  */
 
-import { ASTNode, RuntimeValue, VMInstruction, CompilerResult } from './types.js';
+import { Token, ASTNode, ValueType, BinaryOp, UnaryOp } from './types.js';
 
 /**
- * Base interface for all MicroVM implementations
- * Each specialized VM must implement this interface
+ * Base MicroVM interface - all specialized VMs must implement this
  */
 export interface MicroVM {
-  /**
-   * Unique name/identifier for this VM
-   */
+  /** Unique name for this VM */
   readonly name: string;
   
-  /**
-   * Execute a single instruction
-   * @param instruction The instruction to execute
-   * @param context The execution context
-   * @returns Result of the execution
-   */
-  execute(instruction: VMInstruction, context: ExecutionContext): ExecutionResult;
+  /** Initialize the VM with optional context */
+  initialize?(context?: unknown): void;
   
-  /**
-   * Check if this VM can handle the given instruction
-   * @param instruction The instruction to check
-   * @returns true if this VM can handle the instruction
-   */
-  canHandle(instruction: VMInstruction): boolean;
+  /** Execute an operation and return result */
+  execute(node: ASTNode, context: ExecutionContext): ExecutionResult;
   
-  /**
-   * Reset the VM to its initial state
-   */
-  reset(): void;
+  /** Check if this VM can handle the given node */
+  canHandle(node: ASTNode): boolean;
+  
+  /** Reset VM state */
+  reset?(): void;
+  
+  /** Get current VM state */
+  getState?(): unknown;
+  
+  /** Set VM state */
+  setState?(state: unknown): void;
 }
 
 /**
- * Execution context shared across all VMs
+ * Execution context passed to VMs
  */
 export interface ExecutionContext {
-  /**
-   * Current program counter
-   */
-  pc: number;
+  /** Current memory state */
+  memory: MemoryState;
   
-  /**
-   * Call stack
-   */
-  callStack: CallStackFrame[];
+  /** Current function call stack */
+  callStack: CallStack;
   
-  /**
-   * Global memory
-   */
-  memory: Memory;
-  
-  /**
-   * Output buffer for I/O operations
-   */
+  /** Current output buffer */
   output: string[];
   
-  /**
-   * Input buffer for I/O operations
-   */
+  /** Current input buffer */
   input: string[];
   
-  /**
-   * Current function being executed
-   */
-  currentFunction?: string;
+  /** Current scope depth */
+  scopeDepth: number;
   
-  /**
-   * Flag indicating if execution should stop
-   */
-  shouldStop: boolean;
+  /** Whether we're in a loop */
+  inLoop: boolean;
   
-  /**
-   * Return value from function
-   */
-  returnValue?: RuntimeValue;
+  /** Whether we should break/continue */
+  breakFlag: boolean;
+  continueFlag: boolean;
   
-  /**
-   * Error message if execution failed
-   */
-  error?: string;
+  /** Return value from function */
+  returnValue?: ValueType;
+  
+  /** Whether we've returned */
+  hasReturned: boolean;
 }
 
 /**
- * Result of executing an instruction
+ * Memory state for variable storage
  */
-export interface ExecutionResult {
-  /**
-   * Whether execution was successful
-   */
-  success: boolean;
+export interface MemoryState {
+  /** Stack frames for each scope */
+  frames: StackFrame[];
   
-  /**
-   * New program counter (if different)
-   */
-  newPc?: number;
+  /** Current frame index */
+  currentFrame: number;
   
-  /**
-   * Value produced by the instruction (if any)
-   */
-  value?: RuntimeValue;
+  /** Heap for dynamic allocations */
+  heap: Map<string, ValueType>;
   
-  /**
-   * Error message if execution failed
-   */
-  error?: string;
+  /** Get a variable value */
+  get(name: string): ValueType | undefined;
   
-  /**
-   * Whether execution should stop
-   */
-  shouldStop?: boolean;
-}
-
-/**
- * Memory interface for the MemoryVM
- */
-export interface Memory {
-  /**
-   * Allocate space for a variable
-   */
-  allocate(name: string, type: string, size: number): number;
+  /** Set a variable value */
+  set(name: string, value: ValueType): void;
   
-  /**
-   * Get value at address
-   */
-  get(address: number): RuntimeValue | undefined;
+  /** Allocate a new variable */
+  allocate(name: string, type: string, value?: ValueType): void;
   
-  /**
-   * Set value at address
-   */
-  set(address: number, value: RuntimeValue): void;
+  /** Push a new stack frame */
+  pushFrame(): void;
   
-  /**
-   * Get variable by name
-   */
-  getVariable(name: string): RuntimeValue | undefined;
-  
-  /**
-   * Set variable by name
-   */
-  setVariable(name: string, value: RuntimeValue): void;
-  
-  /**
-   * Push value onto stack
-   */
-  push(value: RuntimeValue): void;
-  
-  /**
-   * Pop value from stack
-   */
-  pop(): RuntimeValue | undefined;
-  
-  /**
-   * Peek at top of stack
-   */
-  peek(): RuntimeValue | undefined;
-  
-  /**
-   * Create a new stack frame
-   */
-  pushFrame(frameName: string): void;
-  
-  /**
-   * Pop current stack frame
-   */
+  /** Pop current stack frame */
   popFrame(): void;
   
-  /**
-   * Get current stack frame
-   */
-  getCurrentFrame(): CallStackFrame | undefined;
-  
-  /**
-   * Reset memory to initial state
-   */
-  reset(): void;
+  /** Get current frame */
+  getCurrentFrame(): StackFrame;
 }
 
 /**
- * Call stack frame
+ * Stack frame representing a scope
  */
-export interface CallStackFrame {
-  /**
-   * Function name
-   */
+export interface StackFrame {
+  /** Variables in this frame */
+  variables: Map<string, Variable>;
+  
+  /** Parent frame index */
+  parent?: number;
+  
+  /** Frame type (global, function, block) */
+  type: 'global' | 'function' | 'block';
+}
+
+/**
+ * Variable information
+ */
+export interface Variable {
+  /** Variable name */
+  name: string;
+  
+  /** Variable type */
+  type: string;
+  
+  /** Current value */
+  value: ValueType;
+  
+  /** Whether this is an array */
+  isArray: boolean;
+  
+  /** Array dimensions (if applicable) */
+  dimensions?: number[];
+  
+  /** Whether this is a pointer */
+  isPointer: boolean;
+  
+  /** Pointer address (if applicable) */
+  address?: string;
+}
+
+/**
+ * Call stack for function calls
+ */
+export interface CallStack {
+  /** Stack of function calls */
+  frames: CallFrame[];
+  
+  /** Current frame index */
+  currentFrame: number;
+  
+  /** Push a new call frame */
+  push(frame: CallFrame): void;
+  
+  /** Pop current call frame */
+  pop(): CallFrame | undefined;
+  
+  /** Get current call frame */
+  getCurrent(): CallFrame | undefined;
+  
+  /** Peek at top frame without popping */
+  peek(): CallFrame | undefined;
+}
+
+/**
+ * Function call frame
+ */
+export interface CallFrame {
+  /** Function name */
   functionName: string;
   
-  /**
-   * Return address
-   */
-  returnAddress: number;
+  /** Return address (instruction pointer) */
+  returnAddress?: number;
   
-  /**
-   * Local variables
-   */
-  locals: Map<string, RuntimeValue>;
+  /** Local variables */
+  locals: Map<string, ValueType>;
   
-  /**
-   * Parameters
-   */
-  params: Map<string, RuntimeValue>;
+  /** Parameters */
+  parameters: Map<string, ValueType>;
   
-  /**
-   * Base address for this frame
-   */
-  baseAddress: number;
+  /** Return value */
+  returnValue?: ValueType;
+}
+
+/**
+ * Result of VM execution
+ */
+export interface ExecutionResult {
+  /** Result value */
+  value?: ValueType;
+  
+  /** Whether execution was successful */
+  success: boolean;
+  
+  /** Error message if failed */
+  error?: string;
+  
+  /** Side effects (output, state changes) */
+  sideEffects?: {
+    output?: string[];
+    memoryChanges?: MemoryChange[];
+  };
+}
+
+/**
+ * Memory change record
+ */
+export interface MemoryChange {
+  /** Variable name */
+  variable: string;
+  
+  /** Old value */
+  oldValue?: ValueType;
+  
+  /** New value */
+  newValue: ValueType;
 }
 
 /**
  * Lexer interface
  */
 export interface Lexer {
-  /**
-   * Tokenize source code
-   * @param source C source code
-   * @returns Array of tokens
-   */
+  /** Tokenize source code */
   tokenize(source: string): Token[];
   
-  /**
-   * Reset lexer state
-   */
+  /** Get current position */
+  getPosition(): { line: number; column: number };
+  
+  /** Reset lexer state */
   reset(): void;
-}
-
-/**
- * Token interface
- */
-export interface Token {
-  type: string;
-  value: string;
-  line: number;
-  column: number;
 }
 
 /**
  * Parser interface
  */
 export interface Parser {
-  /**
-   * Parse tokens into AST
-   * @param tokens Array of tokens
-   * @returns AST root node
-   */
+  /** Parse tokens into AST */
   parse(tokens: Token[]): ASTNode;
   
-  /**
-   * Reset parser state
-   */
+  /** Get current token */
+  getCurrentToken(): Token | undefined;
+  
+  /** Reset parser state */
   reset(): void;
 }
 
@@ -258,126 +244,117 @@ export interface Parser {
  * Compiler interface
  */
 export interface Compiler {
-  /**
-   * Compile source code
-   * @param source C source code
-   * @returns Compiled instructions
-   */
-  compile(source: string): VMInstruction[];
+  /** Compile source code */
+  compile(source: string): CompilationResult;
   
-  /**
-   * Compile and run source code
-   * @param source C source code
-   * @returns Execution result
-   */
-  compileAndRun(source: string): CompilerResult;
+  /** Run compiled code */
+  run(ast: ASTNode, input?: string[]): ExecutionResult;
   
-  /**
-   * Run compiled instructions
-   * @param instructions Compiled instructions
-   * @returns Execution result
-   */
-  run(instructions: VMInstruction[]): CompilerResult;
+  /** Compile and run in one step */
+  compileAndRun(source: string, input?: string[]): ExecutionResult;
 }
 
 /**
- * MicroVM Registry interface
+ * Compilation result
  */
-export interface MicroVMRegistry {
-  /**
-   * Register a MicroVM
-   * @param vm The VM to register
-   */
+export interface CompilationResult {
+  /** Whether compilation was successful */
+  success: boolean;
+  
+  /** Generated AST */
+  ast?: ASTNode;
+  
+  /** Compilation errors */
+  errors: CompilationError[];
+  
+  /** Warnings */
+  warnings: CompilationWarning[];
+}
+
+/**
+ * Compilation error
+ */
+export interface CompilationError {
+  /** Error message */
+  message: string;
+  
+  /** Line number */
+  line: number;
+  
+  /** Column number */
+  column: number;
+  
+  /** Error type */
+  type: 'syntax' | 'semantic' | 'type';
+}
+
+/**
+ * Compilation warning
+ */
+export interface CompilationWarning {
+  /** Warning message */
+  message: string;
+  
+  /** Line number */
+  line: number;
+  
+  /** Column number */
+  column: number;
+}
+
+/**
+ * VM Registry interface
+ */
+export interface VMRegistry {
+  /** Register a VM */
   register(vm: MicroVM): void;
   
-  /**
-   * Unregister a MicroVM
-   * @param name Name of the VM to unregister
-   */
+  /** Unregister a VM by name */
   unregister(name: string): void;
   
-  /**
-   * Get a registered MicroVM by name
-   * @param name Name of the VM
-   * @returns The VM or undefined
-   */
+  /** Get a VM by name */
   get(name: string): MicroVM | undefined;
   
-  /**
-   * Get the VM that can handle an instruction
-   * @param instruction The instruction
-   * @returns The VM that can handle it or undefined
-   */
-  getHandler(instruction: VMInstruction): MicroVM | undefined;
+  /** Find a VM that can handle the given node */
+  find(node: ASTNode): MicroVM | undefined;
   
-  /**
-   * Get all registered VMs
-   * @returns Array of all registered VMs
-   */
+  /** Get all registered VMs */
   getAll(): MicroVM[];
   
-  /**
-   * Reset all registered VMs
-   */
-  resetAll(): void;
+  /** Clear all VMs */
+  clear(): void;
 }
 
 /**
  * Type checker interface
  */
 export interface TypeChecker {
-  /**
-   * Check types in an AST
-   * @param node AST node to check
-   * @returns true if types are valid
-   */
-  check(node: ASTNode): boolean;
+  /** Check type of an expression */
+  checkType(node: ASTNode, context: ExecutionContext): string;
   
-  /**
-   * Get type of an expression
-   * @param node AST node
-   * @returns Type of the expression
-   */
-  getType(node: ASTNode): string | undefined;
+  /** Check if types are compatible */
+  areCompatible(type1: string, type2: string): boolean;
   
-  /**
-   * Check if types are compatible
-   * @param type1 First type
-   * @param type2 Second type
-   * @returns true if types are compatible
-   */
-  isCompatible(type1: string, type2: string): boolean;
+  /** Perform type cast */
+  cast(value: ValueType, fromType: string, toType: string): ValueType;
 }
 
 /**
- * I/O handler interface
+ * IO handler interface
  */
 export interface IOHandler {
-  /**
-   * Print output
-   * @param value Value to print
-   */
-  print(value: RuntimeValue): void;
+  /** Write output */
+  write(format: string, args: ValueType[]): void;
   
-  /**
-   * Read input
-   * @returns Read value
-   */
-  read(): RuntimeValue | undefined;
+  /** Read input */
+  read(format: string): ValueType[];
   
-  /**
-   * Get output buffer
-   */
+  /** Get output buffer */
   getOutput(): string[];
   
-  /**
-   * Clear output buffer
-   */
+  /** Clear output buffer */
   clearOutput(): void;
   
-  /**
-   * Set input buffer
-   * @param input Input values
-   */
+  /** Set input buffer */
   setInput(input: string[]): void;
 }

@@ -2,78 +2,209 @@
  * MemoryVM - Handles variables, arrays, pointers, and scoping with stack frames
  */
 
-import { BaseMicroVM } from './base-vm.js';
-import { ExecutionContext, ExecutionResult, VMInstruction, Memory, CallStackFrame } from '../core/interfaces.js';
-import { VMOperation, RuntimeValue, RuntimeType } from '../core/types.js';
+import { BaseVM } from './base-vm.js';
+import { ASTNode, ExecutionContext, ExecutionResult, ValueType, MemoryState, StackFrame, Variable } from '../core/interfaces.js';
+import { NodeType } from '../core/types.js';
 
-export class MemoryVM extends BaseMicroVM implements Memory {
-  readonly name = 'MemoryVM';
+/**
+ * MemoryVM - handles memory and variable management
+ */
+export class MemoryVM extends BaseVM {
+  readonly name = 'memory';
 
-  private heap: Map<number, RuntimeValue> = new Map();
-  private stack: RuntimeValue[] = [];
-  private frames: CallStackFrame[] = [];
-  private nextAddress = 1000;
+  private memory: MemoryState;
 
   constructor() {
     super();
-    this.registerOperation(VMOperation.LOAD);
-    this.registerOperation(VMOperation.STORE);
-    this.registerOperation(VMOperation.ALLOCATE);
-    this.registerOperation(VMOperation.PUSH);
-    this.registerOperation(VMOperation.POP);
+    this.memory = this.createMemoryState();
   }
 
-  protected executeInstruction(
-    instruction: VMInstruction,
-    context: ExecutionContext
-  ): ExecutionResult {
-    const { operation, operands } = instruction;
+  initialize?(context?: unknown): void {
+    this.memory = this.createMemoryState();
+  }
 
-    switch (operation) {
-      case VMOperation.LOAD:
-        return this.executeLoad(operands, context);
+  execute(node: ASTNode, context: ExecutionContext): ExecutionResult {
+    try {
+      switch (node.type) {
+        case NodeType.VARIABLE_DECL:
+          return this.declareVariable(node, context);
 
-      case VMOperation.STORE:
-        return this.executeStore(operands, context);
+        case NodeType.ASSIGN_EXPR:
+          return this.assignVariable(node, context);
 
-      case VMOperation.ALLOCATE:
-        return this.executeAllocate(operands, context);
+        case NodeType.IDENTIFIER_EXPR:
+          return this.accessVariable(node, context);
 
-      case VMOperation.PUSH:
-        return this.executePush(operands, context);
+        case NodeType.ARRAY_ACCESS_EXPR:
+          return this.accessArray(node, context);
 
-      case VMOperation.POP:
-        return this.executePop(context);
+        case NodeType.ADDRESS_EXPR:
+          return this.getAddress(node, context);
 
-      default:
-        return {
-          success: false,
-          error: `Unknown memory operation: ${operation}`,
-        };
+        case NodeType.DEREFERENCE_EXPR:
+          return this.dereference(node, context);
+
+        default:
+          return {
+            success: false,
+            error: `MemoryVM cannot handle node type: ${node.type}`,
+          };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
-  private executeLoad(operands: unknown[], context: ExecutionContext): ExecutionResult {
-    if (operands.length < 1) {
+  canHandle(node: ASTNode): boolean {
+    return (
+      node.type === NodeType.VARIABLE_DECL ||
+      node.type === NodeType.ASSIGN_EXPR ||
+      node.type === NodeType.IDENTIFIER_EXPR ||
+      node.type === NodeType.ARRAY_ACCESS_EXPR ||
+      node.type === NodeType.ADDRESS_EXPR ||
+      node.type === NodeType.DEREFERENCE_EXPR
+    );
+  }
+
+  private declareVariable(node: ASTNode, context: ExecutionContext): ExecutionResult {
+    const decl = node as {
+      varType: string;
+      name: string;
+      isArray?: boolean;
+      arraySize?: ASTNode;
+      init?: ASTNode | null;
+    };
+
+    let initValue: ValueType = null;
+    if (decl.init) {
+      const initResult = this.evaluateExpression(decl.init, context);
+      if (!initResult.success) {
+        return initResult;
+      }
+      initValue = initResult.value!;
+    } else {
+      // Default initialization based on type
+      initValue = this.getDefaultValue(decl.varType);
+    }
+
+    // Handle array declaration
+    if (decl.isArray) {
+      let arraySize = 0;
+      if (decl.arraySize) {
+        const sizeResult = this.evaluateExpression(decl.arraySize, context);
+        if (!sizeResult.success) {
+          return sizeResult;
+        }
+        arraySize = Math.floor(this.toNumber(sizeResult.value!));
+      }
+
+      // Create array with default values
+      const arrayValue: ValueType[] = [];
+      for (let i = 0; i < arraySize; i++) {
+        arrayValue.push(this.getDefaultValue(decl.varType));
+      }
+
+      context.memory.allocate(decl.name, decl.varType + '[]', arrayValue);
+    } else {
+      context.memory.allocate(decl.name, decl.varType, initValue);
+    }
+
+    return { success: true };
+  }
+
+  private assignVariable(node: ASTNode, context: ExecutionContext): ExecutionResult {
+    const assign = node as {
+      operator: string;
+      left: ASTNode;
+      right: ASTNode;
+    };
+
+    // Evaluate right-hand side
+    const rightResult = this.evaluateExpression(assign.right, context);
+    if (!rightResult.success) {
+      return rightResult;
+    }
+    let value = rightResult.value!;
+
+    // Handle compound assignment
+    if (assign.operator !== '=') {
+      const leftResult = this.evaluateExpression(assign.left, context);
+      if (!leftResult.success) {
+        return leftResult;
+      }
+      const leftValue = leftResult.value!;
+
+      value = this.applyCompoundAssignment(assign.operator, leftValue, value);
+    }
+
+    // Assign to left-hand side
+    if (assign.left.type === NodeType.IDENTIFIER_EXPR) {
+      const name = (assign.left as { name: string }).name;
+      context.memory.set(name, value);
+    } else if (assign.left.type === NodeType.ARRAY_ACCESS_EXPR) {
+      const arrayAccess = assign.left as { array: ASTNode; index: ASTNode };
+      const arrayResult = this.evaluateExpression(arrayAccess.array, context);
+      const indexResult = this.evaluateExpression(arrayAccess.index, context);
+
+      if (!arrayResult.success || !indexResult.success) {
+        return arrayResult.success ? indexResult : arrayResult;
+      }
+
+      const array = arrayResult.value! as ValueType[];
+      const index = Math.floor(this.toNumber(indexResult.value!));
+
+      if (!Array.isArray(array)) {
+        return {
+          success: false,
+          error: 'Cannot index non-array value',
+        };
+      }
+
+      if (index < 0 || index >= array.length) {
+        return {
+          success: false,
+          error: `Array index out of bounds: ${index}`,
+        };
+      }
+
+      array[index] = value;
+    } else if (assign.left.type === NodeType.DEREFERENCE_EXPR) {
+      // Handle pointer dereference assignment
+      const deref = assign.left as { operand: ASTNode };
+      const ptrResult = this.evaluateExpression(deref.operand, context);
+
+      if (!ptrResult.success) {
+        return ptrResult;
+      }
+
+      const address = ptrResult.value! as string;
+      // In a real implementation, we'd look up the address in memory
+      // For now, this is a placeholder
       return {
         success: false,
-        error: 'LOAD operation requires an address or variable name',
+        error: 'Pointer dereference assignment not fully implemented',
+      };
+    } else {
+      return {
+        success: false,
+        error: 'Invalid assignment target',
       };
     }
 
-    const addressOrName = operands[0];
-    let value: RuntimeValue | undefined;
+    return { success: true, value };
+  }
 
-    if (typeof addressOrName === 'number') {
-      value = this.get(addressOrName);
-    } else if (typeof addressOrName === 'string') {
-      value = this.getVariable(addressOrName);
-    }
+  private accessVariable(node: ASTNode, context: ExecutionContext): ExecutionResult {
+    const ident = node as { name: string };
+    const value = context.memory.get(ident.name);
 
-    if (!value) {
+    if (value === undefined) {
       return {
         success: false,
-        error: `Cannot load from address: ${addressOrName}`,
+        error: `Undefined variable: ${ident.name}`,
       };
     }
 
@@ -83,215 +214,274 @@ export class MemoryVM extends BaseMicroVM implements Memory {
     };
   }
 
-  private executeStore(operands: unknown[], context: ExecutionContext): ExecutionResult {
-    if (operands.length < 2) {
+  private accessArray(node: ASTNode, context: ExecutionContext): ExecutionResult {
+    const arrayAccess = node as { array: ASTNode; index: ASTNode };
+
+    const arrayResult = this.evaluateExpression(arrayAccess.array, context);
+    const indexResult = this.evaluateExpression(arrayAccess.index, context);
+
+    if (!arrayResult.success) {
+      return arrayResult;
+    }
+    if (!indexResult.success) {
+      return indexResult;
+    }
+
+    const array = arrayResult.value!;
+    const index = Math.floor(this.toNumber(indexResult.value!));
+
+    if (!Array.isArray(array)) {
       return {
         success: false,
-        error: 'STORE operation requires an address and value',
+        error: 'Cannot index non-array value',
       };
     }
 
-    const addressOrName = operands[0];
-    const value = this.getRuntimeValue(operands[1]);
-
-    if (!value) {
+    if (index < 0 || index >= array.length) {
       return {
         success: false,
-        error: 'Invalid value for STORE operation',
+        error: `Array index out of bounds: ${index}`,
       };
-    }
-
-    if (typeof addressOrName === 'number') {
-      this.set(addressOrName, value);
-    } else if (typeof addressOrName === 'string') {
-      this.setVariable(addressOrName, value);
     }
 
     return {
       success: true,
+      value: array[index],
     };
   }
 
-  private executeAllocate(operands: unknown[], context: ExecutionContext): ExecutionResult {
-    if (operands.length < 2) {
+  private getAddress(node: ASTNode, context: ExecutionContext): ExecutionResult {
+    const addrExpr = node as { operand: ASTNode };
+
+    if (addrExpr.operand.type !== NodeType.IDENTIFIER_EXPR) {
       return {
         success: false,
-        error: 'ALLOCATE operation requires a name and size',
+        error: 'Can only take address of identifiers',
       };
     }
 
-    const name = operands[0] as string;
-    const type = operands[1] as string;
-    const size = typeof operands[2] === 'number' ? operands[2] : 1;
+    const name = (addrExpr.operand as { name: string }).name;
+    const value = context.memory.get(name);
 
-    const address = this.allocate(name, type, size);
+    if (value === undefined) {
+      return {
+        success: false,
+        error: `Undefined variable: ${name}`,
+      };
+    }
+
+    // Return a mock address
+    const address = `&${name}`;
 
     return {
       success: true,
-      value: {
-        type: RuntimeType.POINTER,
-        value: address,
+      value: address,
+    };
+  }
+
+  private dereference(node: ASTNode, context: ExecutionContext): ExecutionResult {
+    const derefExpr = node as { operand: ASTNode };
+
+    const ptrResult = this.evaluateExpression(derefExpr.operand, context);
+    if (!ptrResult.success) {
+      return ptrResult;
+    }
+
+    const address = ptrResult.value! as string;
+
+    // In a real implementation, we'd look up the address in memory
+    // For now, extract the variable name from the address
+    if (typeof address === 'string' && address.startsWith('&')) {
+      const name = address.substring(1);
+      const value = context.memory.get(name);
+
+      if (value === undefined) {
+        return {
+          success: false,
+          error: `Invalid pointer address: ${address}`,
+        };
+      }
+
+      return {
+        success: true,
+        value,
+      };
+    }
+
+    return {
+      success: false,
+      error: 'Invalid pointer address',
+    };
+  }
+
+  private evaluateExpression(node: ASTNode, context: ExecutionContext): ExecutionResult {
+    // Handle literals
+    if (node.type === NodeType.INTEGER_LITERAL) {
+      return { success: true, value: (node as { value: number }).value };
+    }
+    if (node.type === NodeType.FLOAT_LITERAL) {
+      return { success: true, value: (node as { value: number }).value };
+    }
+    if (node.type === NodeType.CHAR_LITERAL) {
+      return { success: true, value: (node as { value: string }).value };
+    }
+    if (node.type === NodeType.STRING_LITERAL) {
+      return { success: true, value: (node as { value: string }).value };
+    }
+
+    // Handle identifiers
+    if (node.type === NodeType.IDENTIFIER_EXPR) {
+      return this.accessVariable(node, context);
+    }
+
+    // For other expressions, we'd need to delegate to appropriate VMs
+    // This is a placeholder
+    return {
+      success: false,
+      error: `Cannot evaluate expression node type: ${node.type}`,
+    };
+  }
+
+  private getDefaultValue(type: string): ValueType {
+    if (type === 'int' || type === 'float') {
+      return 0;
+    }
+    if (type === 'char') {
+      return '\0';
+    }
+    return null;
+  }
+
+  private toNumber(value: ValueType): number {
+    if (typeof value === 'number') {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const num = parseFloat(value);
+      if (isNaN(num)) {
+        throw new Error(`Cannot convert string to number: ${value}`);
+      }
+      return num;
+    }
+    if (typeof value === 'boolean') {
+      return value ? 1 : 0;
+    }
+    if (value === null) {
+      return 0;
+    }
+    throw new Error(`Cannot convert to number: ${typeof value}`);
+  }
+
+  private applyCompoundAssignment(operator: string, left: ValueType, right: ValueType): ValueType {
+    const leftNum = this.toNumber(left);
+    const rightNum = this.toNumber(right);
+
+    switch (operator) {
+      case '+=':
+        return leftNum + rightNum;
+      case '-=':
+        return leftNum - rightNum;
+      case '*=':
+        return leftNum * rightNum;
+      case '/=':
+        return leftNum / rightNum;
+      default:
+        throw new Error(`Unknown compound assignment operator: ${operator}`);
+    }
+  }
+
+  private createMemoryState(): MemoryState {
+    const frames: StackFrame[] = [];
+    const heap = new Map<string, ValueType>();
+
+    // Create global frame
+    frames.push({
+      variables: new Map(),
+      type: 'global',
+    });
+
+    return {
+      frames,
+      currentFrame: 0,
+      heap,
+
+      get(name: string): ValueType | undefined {
+        // Search from current frame backwards
+        for (let i = this.currentFrame; i >= 0; i--) {
+          const frame = this.frames[i];
+          const variable = frame.variables.get(name);
+          if (variable) {
+            return variable.value;
+          }
+        }
+        return undefined;
+      },
+
+      set(name: string, value: ValueType): void {
+        // Search from current frame backwards
+        for (let i = this.currentFrame; i >= 0; i--) {
+          const frame = this.frames[i];
+          const variable = frame.variables.get(name);
+          if (variable) {
+            variable.value = value;
+            return;
+          }
+        }
+        // If not found, create in current frame
+        this.getCurrentFrame().variables.set(name, {
+          name,
+          type: 'auto',
+          value,
+          isArray: false,
+          isPointer: false,
+        });
+      },
+
+      allocate(name: string, type: string, value?: ValueType): void {
+        const frame = this.getCurrentFrame();
+        frame.variables.set(name, {
+          name,
+          type,
+          value: value !== undefined ? value : null,
+          isArray: type.endsWith('[]'),
+          isPointer: type.includes('*'),
+        });
+      },
+
+      pushFrame(): void {
+        this.frames.push({
+          variables: new Map(),
+          type: 'block',
+          parent: this.currentFrame,
+        });
+        this.currentFrame = this.frames.length - 1;
+      },
+
+      popFrame(): void {
+        if (this.currentFrame > 0) {
+          const frame = this.frames[this.currentFrame];
+          this.currentFrame = frame.parent ?? this.currentFrame - 1;
+          this.frames.pop();
+        }
+      },
+
+      getCurrentFrame(): StackFrame {
+        return this.frames[this.currentFrame];
       },
     };
   }
 
-  private executePush(operands: unknown[], context: ExecutionContext): ExecutionResult {
-    if (operands.length < 1) {
-      return {
-        success: false,
-        error: 'PUSH operation requires a value',
-      };
-    }
-
-    const value = this.getRuntimeValue(operands[0]);
-    if (!value) {
-      return {
-        success: false,
-        error: 'Invalid value for PUSH operation',
-      };
-    }
-
-    this.push(value);
-
-    return {
-      success: true,
-    };
+  /**
+   * Get the current memory state
+   */
+  getMemory(): MemoryState {
+    return this.memory;
   }
 
-  private executePop(context: ExecutionContext): ExecutionResult {
-    const value = this.pop();
-
-    if (!value) {
-      return {
-        success: false,
-        error: 'Cannot pop from empty stack',
-      };
-    }
-
-    return {
-      success: true,
-      value,
-    };
-  }
-
-  // Memory interface implementation
-
-  allocate(name: string, type: string, size: number): number {
-    const address = this.nextAddress;
-    this.nextAddress += size * 4; // Assume 4 bytes per element
-
-    // Store in current frame's locals
-    const currentFrame = this.getCurrentFrame();
-    if (currentFrame) {
-      currentFrame.locals.set(name, {
-        type: this.mapTypeToRuntimeType(type),
-        value: address,
-      });
-    }
-
-    return address;
-  }
-
-  get(address: number): RuntimeValue | undefined {
-    return this.heap.get(address);
-  }
-
-  set(address: number, value: RuntimeValue): void {
-    this.heap.set(address, value);
-  }
-
-  getVariable(name: string): RuntimeValue | undefined {
-    // Check current frame first
-    const currentFrame = this.getCurrentFrame();
-    if (currentFrame) {
-      if (currentFrame.locals.has(name)) {
-        return currentFrame.locals.get(name);
-      }
-      if (currentFrame.params.has(name)) {
-        return currentFrame.params.get(name);
-      }
-    }
-
-    // Check other frames (for closures)
-    for (let i = this.frames.length - 1; i >= 0; i--) {
-      const frame = this.frames[i];
-      if (frame.locals.has(name)) {
-        return frame.locals.get(name);
-      }
-      if (frame.params.has(name)) {
-        return frame.params.get(name);
-      }
-    }
-
-    return undefined;
-  }
-
-  setVariable(name: string, value: RuntimeValue): void {
-    const currentFrame = this.getCurrentFrame();
-    if (currentFrame) {
-      currentFrame.locals.set(name, value);
-    }
-  }
-
-  push(value: RuntimeValue): void {
-    this.stack.push(value);
-  }
-
-  pop(): RuntimeValue | undefined {
-    return this.stack.pop();
-  }
-
-  peek(): RuntimeValue | undefined {
-    return this.stack[this.stack.length - 1];
-  }
-
-  pushFrame(frameName: string): void {
-    const frame: CallStackFrame = {
-      functionName: frameName,
-      returnAddress: 0,
-      locals: new Map(),
-      params: new Map(),
-      baseAddress: this.nextAddress,
-    };
-    this.frames.push(frame);
-  }
-
-  popFrame(): void {
-    this.frames.pop();
-  }
-
-  getCurrentFrame(): CallStackFrame | undefined {
-    return this.frames[this.frames.length - 1];
-  }
-
-  reset(): void {
-    this.heap.clear();
-    this.stack = [];
-    this.frames = [];
-    this.nextAddress = 1000;
-  }
-
-  private getRuntimeValue(operand: unknown): RuntimeValue | undefined {
-    if (typeof operand === 'object' && operand !== null && 'type' in operand && 'value' in operand) {
-      return operand as RuntimeValue;
-    }
-    return undefined;
-  }
-
-  private mapTypeToRuntimeType(type: string): RuntimeType {
-    switch (type) {
-      case 'int':
-        return RuntimeType.INT;
-      case 'float':
-        return RuntimeType.FLOAT;
-      case 'char':
-        return RuntimeType.CHAR;
-      case 'pointer':
-        return RuntimeType.POINTER;
-      case 'array':
-        return RuntimeType.ARRAY;
-      default:
-        return RuntimeType.VOID;
-    }
+  /**
+   * Set the memory state
+   */
+  setMemory(memory: MemoryState): void {
+    this.memory = memory;
   }
 }

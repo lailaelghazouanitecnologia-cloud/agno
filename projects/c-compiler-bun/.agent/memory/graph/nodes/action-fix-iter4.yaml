@@ -1,0 +1,37 @@
+node:
+  id: action-fix-iter4
+  name: 'Action: fix'
+  kind: concept
+  description: 'Action: fix | depth: depth:body | context_nodes: [plan-m001, intent-deff7f09] | tokens: 366249in+3778out | 136.3s | FAIL'
+  tags:
+  - action-context
+  - fix
+  meta:
+    prompt_tokens: '366249'
+    iteration: '4'
+    duration_secs: '136.3'
+    completion_tokens: '3778'
+    roska_depth: depth:body
+    success: 'false'
+  weight: 0.5
+  conversation_count: 1
+  decision_count: 0
+  created_at: 1770579811
+  updated_at: 1770579811
+conversations:
+- id: k-1770579811-5
+  node_id: action-fix-iter4
+  topic: 'Action: fix | depth: depth:body | context_nodes: [plan-m001, intent-deff7f09] | tokens: 366249in+3778out | 136.3s | FAIL'
+  messages:
+  - role: system
+    content: roska_depth=depth:body estimated_tokens=6000 priority=0.80
+    timestamp: 1770579811
+  - role: agent
+    content: prompt_tokens=366249 completion_tokens=3778 duration_secs=136.3 success=false
+    timestamp: 1770579811
+  summary: null
+  outcomes: []
+  created_at: 1770579811
+  updated_at: 1770579811
+decisions: []
+specs: []

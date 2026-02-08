@@ -1,0 +1,18 @@
+node:
+  id: plan-m002
+  name: Lexer Module
+  kind: feature
+  description: Tokenization of C source code
+  tags:
+  - plan
+  meta:
+    files: src/lexer.ts
+    status: tested-failed
+  weight: 0.5
+  conversation_count: 0
+  decision_count: 0
+  created_at: 1770579375
+  updated_at: 1770579924
+conversations: []
+decisions: []
+specs: []

@@ -1,155 +1,275 @@
 /**
- * TypeVM - Handles type checking and casting operations
+ * TypeVM - Handles type checking and casting
  */
 
-import { BaseMicroVM } from './base-vm.js';
-import { ExecutionContext, ExecutionResult, VMInstruction, TypeChecker } from '../core/interfaces.js';
-import { VMOperation, RuntimeValue, RuntimeType, CType, ASTNode } from '../core/types.js';
+import { BaseVM } from './base-vm.js';
+import { ASTNode, ExecutionContext, ExecutionResult, ValueType } from '../core/interfaces.js';
+import { NodeType, CType, TypeInfo } from '../core/types.js';
 
-export class TypeVM extends BaseMicroVM implements TypeChecker {
-  readonly name = 'TypeVM';
+/**
+ * TypeVM - handles type checking and casting
+ */
+export class TypeVM extends BaseVM {
+  readonly name = 'type';
 
-  constructor() {
-    super();
-    this.registerOperation(VMOperation.CAST);
+  private typeCache: Map<string, TypeInfo> = new Map();
+
+  execute(node: ASTNode, context: ExecutionContext): ExecutionResult {
+    try {
+      // Type checking is typically done during compilation
+      // At runtime, we mainly handle type casting
+      return {
+        success: true,
+        value: null,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
-  protected executeInstruction(
-    instruction: VMInstruction,
-    context: ExecutionContext
-  ): ExecutionResult {
-    const { operation, operands } = instruction;
+  canHandle(node: ASTNode): boolean {
+    // TypeVM is mainly for type checking during compilation
+    // At runtime, it doesn't handle specific node types
+    return false;
+  }
 
-    switch (operation) {
-      case VMOperation.CAST:
-        return this.executeCast(operands, context);
+  /**
+   * Check type of an expression
+   */
+  checkType(node: ASTNode, context: ExecutionContext): string {
+    switch (node.type) {
+      case NodeType.INTEGER_LITERAL:
+        return 'int';
+
+      case NodeType.FLOAT_LITERAL:
+        return 'float';
+
+      case NodeType.CHAR_LITERAL:
+        return 'char';
+
+      case NodeType.STRING_LITERAL:
+        return 'char*';
+
+      case NodeType.IDENTIFIER_EXPR:
+        const name = (node as { name: string }).name;
+        const value = context.memory.get(name);
+        if (value === undefined) {
+          return 'unknown';
+        }
+        return this.inferType(value);
+
+      case NodeType.BINARY_EXPR:
+        // For binary expressions, we'd need to check operand types
+        // This is a simplified version
+        return 'int';
+
+      case NodeType.UNARY_EXPR:
+        // For unary expressions, we'd need to check operand type
+        return 'int';
+
+      case NodeType.CALL_EXPR:
+        // For function calls, we'd need to look up the function signature
+        return 'int';
+
+      case NodeType.ARRAY_ACCESS_EXPR:
+        // Array access returns the element type
+        return 'int';
 
       default:
-        return {
-          success: false,
-          error: `Unknown type operation: ${operation}`,
-        };
+        return 'unknown';
     }
   }
 
-  private executeCast(operands: unknown[], context: ExecutionContext): ExecutionResult {
-    if (operands.length < 2) {
-      return {
-        success: false,
-        error: 'CAST operation requires a value and target type',
-      };
-    }
-
-    const value = this.getRuntimeValue(operands[0]);
-    const targetType = operands[1] as string;
-
-    if (!value) {
-      return {
-        success: false,
-        error: 'Invalid value for CAST operation',
-      };
-    }
-
-    const castedValue = this.castValue(value, targetType);
-
-    return {
-      success: true,
-      value: castedValue,
-    };
-  }
-
-  // TypeChecker interface implementation
-
-  check(node: ASTNode): boolean {
-    // TODO: Implement type checking
-    return true;
-  }
-
-  getType(node: ASTNode): string | undefined {
-    // TODO: Implement type inference
-    return undefined;
-  }
-
-  isCompatible(type1: string, type2: string): boolean {
-    // Same types are always compatible
-    if (type1 === type2) return true;
-
-    // Numeric types are compatible
-    const numericTypes = [CType.INT, CType.FLOAT, CType.CHAR];
-    if (numericTypes.includes(type1 as CType) && numericTypes.includes(type2 as CType)) {
+  /**
+   * Check if types are compatible
+   */
+  areCompatible(type1: string, type2: string): boolean {
+    // Same types are compatible
+    if (type1 === type2) {
       return true;
     }
 
-    // Void is compatible with nothing
-    if (type1 === CType.VOID || type2 === CType.VOID) {
-      return false;
+    // Numeric types are compatible
+    const numericTypes = ['int', 'float', 'char'];
+    if (numericTypes.includes(type1) && numericTypes.includes(type2)) {
+      return true;
+    }
+
+    // Pointer compatibility
+    if (type1.endsWith('*') && type2 === 'void') {
+      return true;
+    }
+    if (type2.endsWith('*') && type1 === 'void') {
+      return true;
     }
 
     return false;
   }
 
-  reset(): void {
-    // No state to reset
+  /**
+   * Perform type cast
+   */
+  cast(value: ValueType, fromType: string, toType: string): ValueType {
+    // Same type, no cast needed
+    if (fromType === toType) {
+      return value;
+    }
+
+    // Cast to/from numeric types
+    if (this.isNumericType(toType)) {
+      return this.castToNumber(value, fromType);
+    }
+
+    if (this.isNumericType(fromType) && toType === 'char') {
+      const num = this.castToNumber(value, fromType);
+      return String.fromCharCode(Math.floor(num));
+    }
+
+    // Pointer casts
+    if (toType.endsWith('*') && fromType.endsWith('*')) {
+      return value; // Just pass through for pointer casts
+    }
+
+    throw new Error(`Cannot cast from ${fromType} to ${toType}`);
   }
 
-  private castValue(value: RuntimeValue, targetType: string): RuntimeValue {
-    const targetRuntimeType = this.mapCTypeToRuntimeType(targetType);
-    const numericValue = this.toNumber(value);
+  /**
+   * Infer type from value
+   */
+  inferType(value: ValueType): string {
+    if (value === null) {
+      return 'void';
+    }
+    if (typeof value === 'number') {
+      return Number.isInteger(value) ? 'int' : 'float';
+    }
+    if (typeof value === 'string') {
+      return 'char';
+    }
+    if (typeof value === 'boolean') {
+      return 'int';
+    }
+    if (Array.isArray(value)) {
+      return 'int[]';
+    }
+    return 'unknown';
+  }
 
-    switch (targetRuntimeType) {
-      case RuntimeType.INT:
-        return {
-          type: RuntimeType.INT,
-          value: Math.trunc(numericValue),
-        };
-      case RuntimeType.FLOAT:
-        return {
-          type: RuntimeType.FLOAT,
-          value: numericValue,
-        };
-      case RuntimeType.CHAR:
-        return {
-          type: RuntimeType.CHAR,
-          value: String.fromCharCode(Math.trunc(numericValue) % 256),
-        };
+  /**
+   * Parse type string into TypeInfo
+   */
+  parseType(typeStr: string): TypeInfo {
+    // Check cache
+    if (this.typeCache.has(typeStr)) {
+      return this.typeCache.get(typeStr)!;
+    }
+
+    const info: TypeInfo = {
+      base: this.getBaseType(typeStr),
+      isPointer: typeStr.includes('*'),
+      isArray: typeStr.endsWith('[]'),
+    };
+
+    if (info.isArray) {
+      // Could parse array dimensions here
+      info.arrayDimensions = [];
+    }
+
+    if (info.isPointer) {
+      info.pointerDepth = (typeStr.match(/\*/g) || []).length;
+    }
+
+    // Cache the result
+    this.typeCache.set(typeStr, info);
+
+    return info;
+  }
+
+  /**
+   * Get common type for binary operations
+   */
+  getCommonType(type1: string, type2: string): string {
+    // If types are the same, return that type
+    if (type1 === type2) {
+      return type1;
+    }
+
+    // If one is float, result is float
+    if (type1 === 'float' || type2 === 'float') {
+      return 'float';
+    }
+
+    // If one is int, result is int
+    if (type1 === 'int' || type2 === 'int') {
+      return 'int';
+    }
+
+    // Default to int
+    return 'int';
+  }
+
+  private isNumericType(type: string): boolean {
+    return ['int', 'float', 'char', 'long', 'short', 'double'].includes(type);
+  }
+
+  private castToNumber(value: ValueType, fromType: string): number {
+    if (typeof value === 'number') {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      if (fromType === 'char') {
+        return value.charCodeAt(0);
+      }
+      const num = parseFloat(value);
+      if (isNaN(num)) {
+        throw new Error(`Cannot convert string to number: ${value}`);
+      }
+      return num;
+    }
+
+    if (typeof value === 'boolean') {
+      return value ? 1 : 0;
+    }
+
+    if (value === null) {
+      return 0;
+    }
+
+    throw new Error(`Cannot cast to number from type: ${typeof value}`);
+  }
+
+  private getBaseType(typeStr: string): CType {
+    // Remove pointer and array qualifiers
+    const base = typeStr.replace(/\*/g, '').replace(/\[\]/g, '').trim();
+
+    switch (base) {
+      case 'int':
+        return CType.INT;
+      case 'char':
+        return CType.CHAR;
+      case 'float':
+        return CType.FLOAT;
+      case 'void':
+        return CType.VOID;
+      case 'double':
+        return CType.FLOAT;
+      case 'long':
+        return CType.INT;
+      case 'short':
+        return CType.INT;
       default:
-        return value;
+        return CType.VOID;
     }
   }
 
-  private getRuntimeValue(operand: unknown): RuntimeValue | undefined {
-    if (typeof operand === 'object' && operand !== null && 'type' in operand && 'value' in operand) {
-      return operand as RuntimeValue;
-    }
-    return undefined;
-  }
-
-  private toNumber(value: RuntimeValue): number {
-    if (typeof value.value === 'number') {
-      return value.value;
-    }
-    if (typeof value.value === 'string') {
-      return parseFloat(value.value);
-    }
-    return 0;
-  }
-
-  private mapCTypeToRuntimeType(cType: string): RuntimeType {
-    switch (cType) {
-      case CType.INT:
-        return RuntimeType.INT;
-      case CType.FLOAT:
-        return RuntimeType.FLOAT;
-      case CType.CHAR:
-        return RuntimeType.CHAR;
-      case CType.VOID:
-        return RuntimeType.VOID;
-      case CType.POINTER:
-        return RuntimeType.POINTER;
-      case CType.ARRAY:
-        return RuntimeType.ARRAY;
-      default:
-        return RuntimeType.VOID;
-    }
+  /**
+   * Clear type cache
+   */
+  clearCache(): void {
+    this.typeCache.clear();
   }
 }

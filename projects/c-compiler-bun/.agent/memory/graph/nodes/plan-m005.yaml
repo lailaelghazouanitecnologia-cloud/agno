@@ -1,0 +1,18 @@
+node:
+  id: plan-m005
+  name: ArithmeticVM
+  kind: feature
+  description: Arithmetic operations
+  tags:
+  - plan
+  meta:
+    status: implemented
+    files: src/arithmetic-vm.ts
+  weight: 0.5
+  conversation_count: 0
+  decision_count: 0
+  created_at: 1770579375
+  updated_at: 1770579460
+conversations: []
+decisions: []
+specs: []

@@ -1,0 +1,18 @@
+node:
+  id: plan-m006
+  name: ComparisonVM
+  kind: feature
+  description: Comparison operations
+  tags:
+  - plan
+  meta:
+    status: implemented
+    files: src/comparison-vm.ts
+  weight: 0.5
+  conversation_count: 0
+  decision_count: 0
+  created_at: 1770579375
+  updated_at: 1770579460
+conversations: []
+decisions: []
+specs: []

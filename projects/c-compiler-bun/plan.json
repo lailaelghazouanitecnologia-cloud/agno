@@ -1,585 +1,124 @@
 {
-  "project": {
-    "name": "c-compiler-bun",
-    "description": "A C compiler in TypeScript using Bun runtime with micro-VM architecture",
-    "runtime": "bun",
-    "language": "TypeScript",
-    "architecture": "micro-VM based compiler"
-  },
-  "modules": [
-    {
-      "id": "core-interfaces",
-      "name": "Core Interfaces",
-      "description": "Define common interfaces used across the compiler",
-      "files": [
-        {
-          "path": "src/core/Token.ts",
-          "description": "Token type definition for lexer output",
-          "exports": ["TokenType", "Token"]
-        },
-        {
-          "path": "src/core/AST.ts",
-          "description": "AST node types for all language constructs",
-          "exports": ["ASTNode", "Expression", "Statement", "Program", "BinaryOp", "UnaryOp", "Literal", "Identifier", "Assignment", "IfStatement", "WhileStatement", "ForStatement", "ReturnStatement", "FunctionDecl", "FunctionCall", "VariableDecl", "ArrayDecl", "PointerOp", "PrintfCall", "ScanfCall"]
-        },
-        {
-          "path": "src/core/MicroVM.ts",
-          "description": "Base MicroVM interface that all specialized VMs implement",
-          "exports": ["MicroVM", "VMContext", "VMResult"]
-        },
-        {
-          "path": "src/core/Symbol.ts",
-          "description": "Symbol table entries for variables, functions, types",
-          "exports": ["Symbol", "SymbolType", "SymbolTable"]
-        },
-        {
-          "path": "src/core/Type.ts",
-          "description": "Type system definitions",
-          "exports": ["CType", "TypeKind", "TypeChecker"]
-        },
-        {
-          "path": "src/core/Value.ts",
-          "description": "Runtime value representation",
-          "exports": ["RuntimeValue", "ValueKind", "createValue", "isTruthy"]
-        }
-      ],
-      "dependencies": []
-    },
-    {
-      "id": "lexer",
-      "name": "Lexer (Tokenizer)",
-      "description": "Tokenizes C source code into tokens",
-      "files": [
-        {
-          "path": "src/lexer/Lexer.ts",
-          "description": "Main lexer class that tokenizes input string",
-          "exports": ["Lexer"],
-          "methods": ["tokenize", "nextToken", "peekToken", "skipWhitespace", "skipComment", "readNumber", "readString", "readIdentifier", "readOperator"]
-        },
-        {
-          "path": "src/lexer/TokenType.ts",
-          "description": "Enumeration of all token types",
-          "exports": ["TokenType"]
-        }
-      ],
-      "dependencies": ["core-interfaces"]
-    },
-    {
-      "id": "parser",
-      "name": "Parser",
-      "description": "Recursive descent parser that builds AST from tokens",
-      "files": [
-        {
-          "path": "src/parser/Parser.ts",
-          "description": "Main parser class with recursive descent methods",
-          "exports": ["Parser"],
-          "methods": ["parse", "parseProgram", "parseDeclaration", "parseFunctionDecl", "parseVariableDecl", "parseStatement", "parseExpression", "parseAssignment", "parseIfStatement", "parseWhileStatement", "parseForStatement", "parseReturnStatement", "parseBlock", "parseExpressionStatement", "parseBinaryExpression", "parseUnaryExpression", "parsePostfixExpression", "parsePrimaryExpression", "parseFunctionCall", "parseArgumentList"]
-        },
-        {
-          "path": "src/parser/Precedence.ts",
-          "description": "Operator precedence table for expression parsing",
-          "exports": ["precedence", "getPrecedence"]
-        }
-      ],
-      "dependencies": ["core-interfaces", "lexer"]
-    },
-    {
-      "id": "microvm-registry",
-      "name": "MicroVM Registry",
-      "description": "Central registry that dispatches operations to specialized VMs",
-      "files": [
-        {
-          "path": "src/vm/registry/VMRegistry.ts",
-          "description": "Registry that maps AST node types to specialized VMs",
-          "exports": ["VMRegistry"],
-          "methods": ["registerVM", "getVM", "dispatch", "executeNode"]
-        },
-        {
-          "path": "src/vm/registry/VMFactory.ts",
-          "description": "Factory for creating VM instances",
-          "exports": ["VMFactory"],
-          "methods": ["createVM", "createAllVMs"]
-        }
-      ],
-      "dependencies": ["core-interfaces"]
-    },
-    {
-      "id": "arithmetic-vm",
-      "name": "ArithmeticVM",
-      "description": "Handles arithmetic operations: +, -, *, /, %",
-      "files": [
-        {
-          "path": "src/vm/arithmetic/ArithmeticVM.ts",
-          "description": "Specialized VM for arithmetic operations",
-          "exports": ["ArithmeticVM"],
-          "implements": "MicroVM",
-          "methods": ["execute", "add", "subtract", "multiply", "divide", "modulo", "handleTypePromotion"]
-        },
-        {
-          "path": "src/vm/arithmetic/ArithmeticOps.ts",
-          "description": "Arithmetic operation handlers",
-          "exports": ["performAdd", "performSub", "performMul", "performDiv", "performMod"]
-        }
-      ],
-      "dependencies": ["core-interfaces", "microvm-registry"]
-    },
-    {
-      "id": "comparison-vm",
-      "name": "ComparisonVM",
-      "description": "Handles comparison operations: <, >, <=, >=, ==, !=",
-      "files": [
-        {
-          "path": "src/vm/comparison/ComparisonVM.ts",
-          "description": "Specialized VM for comparison operations",
-          "exports": ["ComparisonVM"],
-          "implements": "MicroVM",
-          "methods": ["execute", "lessThan", "greaterThan", "lessThanOrEqual", "greaterThanOrEqual", "equal", "notEqual"]
-        },
-        {
-          "path": "src/vm/comparison/ComparisonOps.ts",
-          "description": "Comparison operation handlers",
-          "exports": ["compareValues", "performComparison"]
-        }
-      ],
-      "dependencies": ["core-interfaces", "microvm-registry"]
-    },
-    {
-      "id": "controlflow-vm",
-      "name": "ControlFlowVM",
-      "description": "Handles control flow: if/else/else-if, while, for loops",
-      "files": [
-        {
-          "path": "src/vm/controlflow/ControlFlowVM.ts",
-          "description": "Specialized VM for control flow constructs",
-          "exports": ["ControlFlowVM"],
-          "implements": "MicroVM",
-          "methods": ["execute", "executeIf", "executeWhile", "executeFor", "executeElseIf", "executeElse", "breakLoop", "continueLoop"]
-        },
-        {
-          "path": "src/vm/controlflow/LoopContext.ts",
-          "description": "Loop context management for break/continue",
-          "exports": ["LoopContext", "LoopManager"]
-        }
-      ],
-      "dependencies": ["core-interfaces", "microvm-registry"]
-    },
-    {
-      "id": "function-vm",
-      "name": "FunctionVM",
-      "description": "Handles function definitions, calls, returns, and call stack",
-      "files": [
-        {
-          "path": "src/vm/function/FunctionVM.ts",
-          "description": "Specialized VM for function operations",
-          "exports": ["FunctionVM"],
-          "implements": "MicroVM",
-          "methods": ["execute", "defineFunction", "callFunction", "returnFromFunction", "pushStackFrame", "popStackFrame", "getCurrentFrame"]
-        },
-        {
-          "path": "src/vm/function/CallStack.ts",
-          "description": "Call stack implementation for function calls",
-          "exports": ["StackFrame", "CallStack"],
-          "methods": ["push", "pop", "peek", "getDepth"]
-        },
-        {
-          "path": "src/vm/function/FunctionTable.ts",
-          "description": "Function symbol table for lookups",
-          "exports": ["FunctionInfo", "FunctionTable"],
-          "methods": ["declare", "lookup", "exists"]
-        }
-      ],
-      "dependencies": ["core-interfaces", "microvm-registry"]
-    },
-    {
-      "id": "memory-vm",
-      "name": "MemoryVM",
-      "description": "Handles variables, arrays, pointers, and scoping with stack frames",
-      "files": [
-        {
-          "path": "src/vm/memory/MemoryVM.ts",
-          "description": "Specialized VM for memory operations",
-          "exports": ["MemoryVM"],
-          "implements": "MicroVM",
-          "methods": ["execute", "allocateVariable", "readVariable", "writeVariable", "allocateArray", "readArrayElement", "writeArrayElement", "addressOf", "dereference", "pushScope", "popScope", "getCurrentScope"]
-        },
-        {
-          "path": "src/vm/memory/Scope.ts",
-          "description": "Scope management for variable scoping",
-          "exports": ["Scope", "ScopeManager"],
-          "methods": ["enter", "exit", "getCurrent", "getParent", "declare", "lookup", "lookupAll"]
-        },
-        {
-          "path": "src/vm/memory/Pointer.ts",
-          "description": "Pointer operations and address management",
-          "exports": ["Pointer", "Address", "dereferencePointer", "createPointer"]
-        },
-        {
-          "path": "src/vm/memory/Heap.ts",
-          "description": "Heap memory allocation (for dynamic arrays)",
-          "exports": ["Heap", "allocate", "free", "read", "write"]
-        }
-      ],
-      "dependencies": ["core-interfaces", "microvm-registry"]
-    },
-    {
-      "id": "io-vm",
-      "name": "IOVM",
-      "description": "Handles printf and scanf I/O operations",
-      "files": [
-        {
-          "path": "src/vm/io/IOVM.ts",
-          "description": "Specialized VM for I/O operations",
-          "exports": ["IOVM"],
-          "implements": "MicroVM",
-          "methods": ["execute", "printf", "scanf", "formatString", "parseFormat"]
-        },
-        {
-          "path": "src/vm/io/FormatParser.ts",
-          "description": "Printf/scanf format string parser",
-          "exports": ["FormatSpecifier", "parseFormatString", "formatValue"]
-        },
-        {
-          "path": "src/vm/io/Buffer.ts",
-          "description": "Input/output buffer management",
-          "exports": ["IOBuffer", "read", "write", "flush"]
-        }
-      ],
-      "dependencies": ["core-interfaces", "microvm-registry"]
-    },
-    {
-      "id": "type-vm",
-      "name": "TypeVM",
-      "description": "Handles type checking and casting operations",
-      "files": [
-        {
-          "path": "src/vm/type/TypeVM.ts",
-          "description": "Specialized VM for type operations",
-          "exports": ["TypeVM"],
-          "implements": "MicroVM",
-          "methods": ["execute", "checkType", "castValue", "implicitCast", "explicitCast", "getCommonType", "isCompatible"]
-        },
-        {
-          "path": "src/vm/type/CastRules.ts",
-          "description": "Type casting rules and promotions",
-          "exports": ["canCast", "getPromotedType", "performCast"]
-        },
-        {
-          "path": "src/vm/type/TypeChecker.ts",
-          "description": "Static type checking for AST nodes",
-          "exports": ["TypeChecker", "checkNode", "checkExpression", "checkStatement"]
-        }
-      ],
-      "dependencies": ["core-interfaces", "microvm-registry"]
-    },
-    {
-      "id": "compiler",
-      "name": "Main Compiler",
-      "description": "Orchestrates all components to compile and run C code",
-      "files": [
-        {
-          "path": "src/compiler/Compiler.ts",
-          "description": "Main compiler class that coordinates all phases",
-          "exports": ["Compiler"],
-          "methods": ["compile", "compileString", "compileFile", "run", "runString", "runFile", "getAST", "getErrors", "getWarnings"]
-        },
-        {
-          "path": "src/compiler/CompilationContext.ts",
-          "description": "Context object passed through compilation phases",
-          "exports": ["CompilationContext", "ContextFlags"]
-        },
-        {
-          "path": "src/compiler/Diagnostics.ts",
-          "description": "Error and warning reporting",
-          "exports": ["Diagnostic", "DiagnosticLevel", "DiagnosticReporter", "error", "warning", "info"]
-        }
-      ],
-      "dependencies": ["core-interfaces", "lexer", "parser", "microvm-registry", "arithmetic-vm", "comparison-vm", "controlflow-vm", "function-vm", "memory-vm", "io-vm", "type-vm"]
-    },
-    {
-      "id": "cli",
-      "name": "CLI Entry Point",
-      "description": "Command-line interface for compiling and running C files",
-      "files": [
-        {
-          "path": "src/cli/index.ts",
-          "description": "Main CLI entry point",
-          "exports": ["main"],
-          "methods": ["parseArgs", "runCommand", "showHelp", "showVersion"]
-        },
-        {
-          "path": "src/cli/commands.ts",
-          "description": "CLI command handlers",
-          "exports": ["handleCompile", "handleRun", "handleAST", "handleTokens"]
-        },
-        {
-          "path": "src/cli/options.ts",
-          "description": "CLI option definitions and parsing",
-          "exports": ["CLIOptions", "parseOptions"]
-        }
-      ],
-      "dependencies": ["compiler"]
-    },
-    {
-      "id": "tests",
-      "name": "Comprehensive Tests",
-      "description": "Test suite using bun:test framework",
-      "files": [
-        {
-          "path": "tests/lexer.test.ts",
-          "description": "Lexer tokenization tests",
-          "testCases": ["keywords", "operators", "literals", "identifiers", "comments", "whitespace", "complexSource"]
-        },
-        {
-          "path": "tests/parser.test.ts",
-          "description": "Parser AST construction tests",
-          "testCases": ["expressions", "statements", "declarations", "functions", "controlFlow", "errorRecovery"]
-        },
-        {
-          "path": "tests/arithmetic-vm.test.ts",
-          "description": "ArithmeticVM operation tests",
-          "testCases": ["addition", "subtraction", "multiplication", "division", "modulo", "typePromotion", "overflow"]
-        },
-        {
-          "path": "tests/comparison-vm.test.ts",
-          "description": "ComparisonVM operation tests",
-          "testCases": ["lessThan", "greaterThan", "equality", "inequality", "mixedTypes"]
-        },
-        {
-          "path": "tests/controlflow-vm.test.ts",
-          "description": "ControlFlowVM tests",
-          "testCases": ["ifStatement", "ifElse", "elseIf", "whileLoop", "forLoop", "break", "continue", "nestedLoops"]
-        },
-        {
-          "path": "tests/function-vm.test.ts",
-          "description": "FunctionVM tests",
-          "testCases": ["declaration", "call", "return", "parameters", "recursion", "callStack", "scope"]
-        },
-        {
-          "path": "tests/memory-vm.test.ts",
-          "description": "MemoryVM tests",
-          "testCases": ["variableAllocation", "variableRead", "variableWrite", "arrayAllocation", "arrayAccess", "pointerOps", "addressOf", "dereference", "scoping", "shadowing"]
-        },
-        {
-          "path": "tests/io-vm.test.ts",
-          "description": "IOVM tests",
-          "testCases": ["printfBasic", "printfFormat", "printfMultiple", "scanfBasic", "scanfFormat", "stringLiterals"]
-        },
-        {
-          "path": "tests/type-vm.test.ts",
-          "description": "TypeVM tests",
-          "testCases": ["typeChecking", "implicitCast", "explicitCast", "compatibility", "promotion"]
-        },
-        {
-          "path": "tests/integration.test.ts",
-          "description": "End-to-end integration tests",
-          "testCases": ["helloWorld", "factorial", "fibonacci", "primes", "arraySum", "pointerDemo", "functionCalls", "complexProgram"]
-        },
-        {
-          "path": "tests/fixtures/hello.c",
-          "description": "Hello world test fixture"
-        },
-        {
-          "path": "tests/fixtures/factorial.c",
-          "description": "Factorial test fixture"
-        },
-        {
-          "path": "tests/fixtures/fibonacci.c",
-          "description": "Fibonacci test fixture"
-        },
-        {
-          "path": "tests/fixtures/arrays.c",
-          "description": "Array operations test fixture"
-        },
-        {
-          "path": "tests/fixtures/pointers.c",
-          "description": "Pointer operations test fixture"
-        },
-        {
-          "path": "tests/fixtures/loops.c",
-          "description": "Loop constructs test fixture"
-        },
-        {
-          "path": "tests/fixtures/functions.c",
-          "description": "Function operations test fixture"
-        },
-        {
-          "path": "tests/fixtures/io.c",
-          "description": "I/O operations test fixture"
-        },
-        {
-          "path": "tests/fixtures/complex.c",
-          "description": "Complex program test fixture"
-        }
-      ],
-      "dependencies": ["all-modules"]
-    },
-    {
-      "id": "config",
-      "name": "Configuration",
-      "description": "Project configuration files",
-      "files": [
-        {
-          "path": "package.json",
-          "description": "Bun package configuration",
-          "content": {
-            "name": "c-compiler-bun",
-            "version": "1.0.0",
-            "description": "A C compiler in TypeScript using Bun with micro-VM architecture",
-            "type": "module",
-            "main": "dist/cli/index.js",
-            "bin": {
-              "cc-bun": "./dist/cli/index.js"
-            },
-            "scripts": {
-              "build": "bun build src/cli/index.ts --outdir dist --target bun",
-              "dev": "bun run src/cli/index.ts",
-              "test": "bun test",
-              "lint": "bunx eslint src",
-              "format": "bunx prettier --write src"
-            },
-            "devDependencies": {
-              "bun-types": "latest",
-              "@types/bun": "latest"
-            },
-            "engines": {
-              "bun": ">=1.0.0"
-            }
-          }
-        },
-        {
-          "path": "tsconfig.json",
-          "description": "TypeScript configuration",
-          "content": {
-            "compilerOptions": {
-              "target": "ESNext",
-              "module": "ESNext",
-              "moduleResolution": "bundler",
-              "lib": ["ESNext"],
-              "strict": true,
-              "esModuleInterop": true,
-              "skipLibCheck": true,
-              "forceConsistentCasingInFileNames": true,
-              "resolveJsonModule": true,
-              "allowSyntheticDefaultImports": true,
-              "declaration": true,
-              "declarationMap": true,
-              "sourceMap": true,
-              "outDir": "./dist"
-            },
-            "include": ["src/**/*"],
-            "exclude": ["node_modules", "dist"]
-          }
-        },
-        {
-          "path": ".gitignore",
-          "description": "Git ignore patterns",
-          "content": ["node_modules", "dist", "*.log", ".DS_Store"]
-        },
-        {
-          "path": "README.md",
-          "description": "Project documentation",
-          "sections": ["Introduction", "Features", "Architecture", "Installation", "Usage", "Examples", "Testing", "Contributing"]
-        }
-      ],
-      "dependencies": []
-    }
+  "project": "c-compiler-bun",
+  "description": "A C compiler built with TypeScript and Bun using micro-VM architecture",
+  "features": [
+    "variables (int, char, float)",
+    "arithmetic (+,-,*,/,%)",
+    "comparisons (<,>,<=,>=,==,!=)",
+    "if/else/else-if",
+    "while/for loops",
+    "functions with parameters and return values",
+    "arrays",
+    "pointers (basic: &, *)",
+    "printf/scanf",
+    "string literals"
   ],
-  "languageFeatures": {
-    "variables": {
-      "types": ["int", "char", "float"],
-      "module": "memory-vm"
-    },
-    "arithmetic": {
-      "operators": ["+", "-", "*", "/", "%"],
-      "module": "arithmetic-vm"
-    },
-    "comparisons": {
-      "operators": ["<", ">", "<=", ">=", "==", "!="],
-      "module": "comparison-vm"
-    },
-    "controlFlow": {
-      "constructs": ["if", "else", "else-if", "while", "for"],
-      "module": "controlflow-vm"
-    },
-    "functions": {
-      "features": ["parameters", "return values", "recursion", "call stack"],
-      "module": "function-vm"
-    },
-    "arrays": {
-      "features": ["declaration", "indexing", "multi-dimensional"],
-      "module": "memory-vm"
-    },
-    "pointers": {
-      "operators": ["& (address-of)", "* (dereference)"],
-      "module": "memory-vm"
-    },
-    "io": {
-      "functions": ["printf", "scanf"],
-      "module": "io-vm"
-    },
-    "strings": {
-      "features": ["literals", "format strings"],
-      "module": "io-vm"
-    },
-    "types": {
-      "features": ["type checking", "implicit casting", "explicit casting"],
-      "module": "type-vm"
-    }
+  "architecture": {
+    "lexer": "Tokenizer for C tokens",
+    "parser": "Recursive descent, builds AST",
+    "microvm-registry": "Central dispatcher for VMs",
+    "arithmetic-vm": "Handles +,-,*,/,% operations",
+    "comparison-vm": "Handles relational and equality ops",
+    "control-flow-vm": "Handles if/else, while, for",
+    "function-vm": "Handles function definitions, calls, returns, call stack",
+    "memory-vm": "Handles variables, arrays, pointers, scoping with stack frames",
+    "io-vm": "Handles printf/scanf",
+    "type-vm": "Handles type checking and casting",
+    "compiler": "Main orchestrator",
+    "cli": "Command-line interface"
   },
-  "implementationOrder": [
-    "core-interfaces",
-    "lexer",
-    "parser",
-    "microvm-registry",
-    "arithmetic-vm",
-    "comparison-vm",
-    "type-vm",
-    "memory-vm",
-    "io-vm",
-    "controlflow-vm",
-    "function-vm",
-    "compiler",
-    "cli",
-    "config",
-    "tests"
-  ],
-  "testStrategy": {
-    "unitTests": [
-      "lexer tokenization",
-      "parser AST generation",
-      "each VM module independently"
+  "structure": {
+    "root": [
+      "package.json",
+      "tsconfig.json",
+      "plan.json",
+      "verify-scaffold.ts"
     ],
-    "integrationTests": [
-      "compile and run simple programs",
-      "complex multi-feature programs",
-      "error handling and edge cases"
+    "src": [
+      "interfaces.ts",
+      "types.ts",
+      "lexer.ts",
+      "parser.ts",
+      "microvm-registry.ts",
+      "arithmetic-vm.ts",
+      "comparison-vm.ts",
+      "control-flow-vm.ts",
+      "function-vm.ts",
+      "memory-vm.ts",
+      "io-vm.ts",
+      "type-vm.ts",
+      "compiler.ts",
+      "cli.ts",
+      "index.ts"
     ],
-    "fixtures": [
+    "src/core": [
+      "interfaces.ts",
+      "types.ts",
+      "index.ts"
+    ],
+    "src/lexer": [
+      "lexer.ts",
+      "index.ts"
+    ],
+    "src/parser": [
+      "parser.ts",
+      "index.ts"
+    ],
+    "src/vm": [
+      "MicroVM.ts",
+      "base-vm.ts",
+      "registry.ts",
+      "arithmetic-vm.ts",
+      "comparison-vm.ts",
+      "control-flow-vm.ts",
+      "function-vm.ts",
+      "memory-vm.ts",
+      "io-vm.ts",
+      "type-vm.ts",
+      "index.ts"
+    ],
+    "src/vms": [
+      "arithmetic-vm.ts",
+      "comparison-vm.ts",
+      "control-flow-vm.ts",
+      "function-vm.ts",
+      "io-vm.ts",
+      "memory-vm.ts",
+      "type-vm.ts"
+    ],
+    "tests": [
+      "lexer.test.ts",
+      "parser.test.ts",
+      "vm.test.ts",
+      "compiler.test.ts",
+      "integration.test.ts",
+      "test-utils.ts",
+      "index.test.ts"
+    ],
+    "test": [
+      "vm.test.ts",
+      "integration.test.ts",
+      "examples.ts"
+    ],
+    "examples": [
       "hello.c",
+      "variables.c",
+      "arithmetic.c",
+      "comparisons.c",
+      "ifelse.c",
+      "while.c",
+      "for.c",
+      "loops.c",
+      "function.c",
+      "functions.c",
       "factorial.c",
       "fibonacci.c",
+      "recursion.c",
       "arrays.c",
+      "multi-array.c",
       "pointers.c",
-      "loops.c",
-      "functions.c",
       "io.c",
-      "complex.c"
+      "control-flow.c"
     ]
-  },
-  "cliInterface": {
-    "commands": {
-      "compile": "Compile a .c file to AST",
-      "run": "Compile and run a .c file",
-      "ast": "Output AST as JSON",
-      "tokens": "Output tokens for debugging"
-    },
-    "options": {
-      "--output, -o": "Output file",
-      "--ast": "Show AST output",
-      "--tokens": "Show token output",
-      "--verbose, -v": "Verbose output",
-      "--help, -h": "Show help",
-      "--version, -V": "Show version"
-    }
   }
 }

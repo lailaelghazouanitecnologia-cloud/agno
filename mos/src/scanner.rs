@@ -3,13 +3,17 @@
 //! Scans the workspace with roska to produce descriptors at configurable
 //! depth levels. Handles empty projects (no code yet) gracefully.
 //!
+//! Two scanning modes:
+//! 1. **Project-level**: full workspace scan for perception phase
+//! 2. **Feature-level**: targeted scan of specific files for action dispatch
+//!
 //! The scanner is the **Perception phase** of the inner loop:
 //! it observes what exists before the agent starts thinking.
 
 use knowledge_core::graph::{Edge, EdgeRelation, Node, NodeKind};
 use knowledge_graph::KnowledgeGraph;
 use roska_descriptor::Depth;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Result of scanning a project.
 pub struct ProjectScan {
@@ -207,6 +211,299 @@ pub fn scan_into_graph(workspace: &Path, graph: &mut KnowledgeGraph) -> Option<P
     }
 
     None
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Feature-Level Scanning — targeted context injection
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Max characters to inject per file at each depth level.
+const DEPTH_CHAR_LIMITS: [usize; 4] = [
+    200,   // Depth 0: just filename + first comment line
+    800,   // Depth 1: imports + exports + type signatures
+    3000,  // Depth 2: core logic, function bodies truncated
+    10000, // Depth 3: full file (capped)
+];
+
+/// Result of scanning specific feature files.
+pub struct FeatureContext {
+    /// Rendered context string to inject into the prompt.
+    pub content: String,
+    /// Number of files included.
+    pub file_count: usize,
+    /// Approximate token count (~4 chars per token).
+    pub estimated_tokens: usize,
+}
+
+/// Scan specific files for a feature and render at the given depth.
+///
+/// For Rust files: uses roska's AST-based analysis (generate_file + render_at_depth).
+/// For other languages (TS, JS, Python, etc.): uses line-based truncation with
+/// smart extraction of imports, exports, and signatures.
+///
+/// `files` are paths relative to the workspace root.
+pub fn scan_feature_files(
+    workspace: &Path,
+    files: &[String],
+    depth: Depth,
+) -> FeatureContext {
+    let char_limit = DEPTH_CHAR_LIMITS[depth as usize];
+    let mut content = String::new();
+    let mut file_count = 0;
+
+    for file_path in files {
+        let abs_path = resolve_file_path(workspace, file_path);
+        if !abs_path.exists() {
+            continue;
+        }
+
+        let source = match std::fs::read_to_string(&abs_path) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        if source.trim().is_empty() {
+            continue;
+        }
+
+        let ext = abs_path.extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+
+        let rendered = if ext == "rs" {
+            // Rust → use roska's AST analysis
+            render_rust_file(&abs_path, &source, depth)
+        } else {
+            // Other languages → line-based smart extraction
+            render_generic_file(file_path, &source, depth, char_limit)
+        };
+
+        if !rendered.is_empty() {
+            content.push_str(&format!("### {}\n", file_path));
+            content.push_str(&rendered);
+            content.push_str("\n\n");
+            file_count += 1;
+        }
+    }
+
+    let estimated_tokens = content.len() / 4;
+    FeatureContext {
+        content,
+        file_count,
+        estimated_tokens,
+    }
+}
+
+/// Scan a feature's files plus its dependencies' files.
+///
+/// - Target feature files: scanned at `depth`
+/// - Dependency files: scanned at depth-1 (just enough for interfaces)
+pub fn scan_feature_with_deps(
+    workspace: &Path,
+    feature_files: &[String],
+    dep_files: &[String],
+    depth: Depth,
+) -> FeatureContext {
+    let mut ctx = scan_feature_files(workspace, feature_files, depth);
+
+    if !dep_files.is_empty() {
+        let dep_depth = match depth {
+            Depth::Overview => Depth::Overview,
+            Depth::Structure => Depth::Overview,
+            Depth::Detail => Depth::Structure,
+            Depth::Body => Depth::Detail,
+        };
+        let dep_ctx = scan_feature_files(workspace, dep_files, dep_depth);
+        if !dep_ctx.content.is_empty() {
+            ctx.content.push_str("## Dependencies (interfaces)\n\n");
+            ctx.content.push_str(&dep_ctx.content);
+            ctx.file_count += dep_ctx.file_count;
+            ctx.estimated_tokens += dep_ctx.estimated_tokens;
+        }
+    }
+
+    ctx
+}
+
+/// Build a project overview at depth 0 — just file listing grouped by directory.
+/// Works for ANY language (no AST parsing needed).
+pub fn scan_project_listing(workspace: &Path) -> String {
+    let mut output = String::new();
+    let mut dirs: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+
+    walk_files_for_listing(workspace, workspace, &mut dirs);
+
+    if dirs.is_empty() {
+        return "Empty project — no source files found.\n".to_string();
+    }
+
+    let total: usize = dirs.values().map(|v| v.len()).sum();
+    output.push_str(&format!("Project: {} files in {} directories\n\n", total, dirs.len()));
+
+    for (dir, files) in &dirs {
+        output.push_str(&format!("{}/ ({} files)\n", dir, files.len()));
+        for f in files {
+            output.push_str(&format!("  {}\n", f));
+        }
+    }
+
+    output
+}
+
+// ── Internal helpers ──
+
+fn resolve_file_path(workspace: &Path, file_path: &str) -> PathBuf {
+    let p = Path::new(file_path);
+    if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        workspace.join(file_path)
+    }
+}
+
+fn render_rust_file(path: &Path, source: &str, depth: Depth) -> String {
+    match roska_generator::generate_file(path, source) {
+        Ok(desc) => roska_processor::render_at_depth(&desc, depth),
+        Err(_) => render_generic_file(
+            &path.display().to_string(),
+            source,
+            depth,
+            DEPTH_CHAR_LIMITS[depth as usize],
+        ),
+    }
+}
+
+fn render_generic_file(name: &str, source: &str, depth: Depth, char_limit: usize) -> String {
+    let lines: Vec<&str> = source.lines().collect();
+
+    match depth {
+        Depth::Overview => {
+            // Just the first doc comment + line count
+            let mut out = format!("({} lines)\n", lines.len());
+            // Extract first comment block
+            for line in lines.iter().take(5) {
+                let trimmed = line.trim();
+                if trimmed.starts_with("//") || trimmed.starts_with('#') || trimmed.starts_with("/*") || trimmed.starts_with('*') {
+                    out.push_str(&format!("{}\n", trimmed));
+                } else if !trimmed.is_empty() {
+                    break;
+                }
+            }
+            out
+        }
+        Depth::Structure => {
+            // Imports + exports + type/interface/class declarations
+            let mut out = String::new();
+            for line in &lines {
+                let trimmed = line.trim();
+                if is_structural_line(trimmed) {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+                if out.len() >= char_limit {
+                    break;
+                }
+            }
+            if out.is_empty() {
+                // Fallback: first N lines
+                let n = (char_limit / 60).min(lines.len());
+                for line in lines.iter().take(n) {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+            out
+        }
+        Depth::Detail => {
+            // All lines, truncated at char_limit
+            let mut out = String::new();
+            for line in &lines {
+                out.push_str(line);
+                out.push('\n');
+                if out.len() >= char_limit {
+                    out.push_str(&format!("... ({} more lines)\n", lines.len().saturating_sub(out.lines().count())));
+                    break;
+                }
+            }
+            out
+        }
+        Depth::Body => {
+            // Full file, capped
+            if source.len() <= char_limit {
+                source.to_string()
+            } else {
+                let mut out = String::new();
+                for line in &lines {
+                    out.push_str(line);
+                    out.push('\n');
+                    if out.len() >= char_limit {
+                        out.push_str(&format!("... ({} more lines truncated)\n", lines.len().saturating_sub(out.lines().count())));
+                        break;
+                    }
+                }
+                out
+            }
+        }
+    }
+}
+
+/// Check if a line is "structural" — import, export, type definition, etc.
+fn is_structural_line(line: &str) -> bool {
+    line.starts_with("import ")
+        || line.starts_with("export ")
+        || line.starts_with("from ")
+        || line.starts_with("use ")
+        || line.starts_with("pub ")
+        || line.starts_with("type ")
+        || line.starts_with("interface ")
+        || line.starts_with("class ")
+        || line.starts_with("enum ")
+        || line.starts_with("struct ")
+        || line.starts_with("fn ")
+        || line.starts_with("const ")
+        || line.starts_with("function ")
+        || line.starts_with("def ")
+        || line.starts_with("module ")
+        || line.starts_with("require(")
+        || line.starts_with("module.exports")
+        || (line.starts_with("export ") && line.contains("function "))
+        || (line.starts_with("export ") && line.contains("class "))
+        || (line.starts_with("export ") && line.contains("interface "))
+}
+
+fn walk_files_for_listing(
+    root: &Path,
+    dir: &Path,
+    dirs: &mut std::collections::BTreeMap<String, Vec<String>>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+
+        // Skip hidden dirs, node_modules, dist, target
+        if name.starts_with('.') || name == "node_modules" || name == "dist" || name == "target" {
+            continue;
+        }
+
+        if path.is_dir() {
+            walk_files_for_listing(root, &path, dirs);
+        } else if path.is_file() {
+            if let Some(ext) = path.extension() {
+                let ext = ext.to_string_lossy().to_lowercase();
+                if matches!(ext.as_str(), "ts" | "js" | "py" | "rs" | "go" | "c" | "cpp" | "java" | "json" | "toml" | "yaml") {
+                    let rel = path.strip_prefix(root).unwrap_or(&path);
+                    let dir_part = rel.parent()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|| ".".to_string());
+                    let file_name = rel.file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    dirs.entry(dir_part).or_default().push(file_name);
+                }
+            }
+        }
+    }
 }
 
 /// Sanitize a name for use as a node ID.

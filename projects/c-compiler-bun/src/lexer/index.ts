@@ -1,1 +1,5 @@
-export { Lexer } from "./lexer.js";
+/**
+ * Lexer module exports
+ */
+
+export * from './lexer.js';

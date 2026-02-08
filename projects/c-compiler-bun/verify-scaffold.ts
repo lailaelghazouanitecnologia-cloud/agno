@@ -1,64 +1,32 @@
 #!/usr/bin/env bun
-
 /**
- * Scaffold Verification Script
- * 
- * This script verifies that the project scaffold is complete
- * and all necessary files and directories exist.
+ * Verify scaffold - checks that all required files exist
  */
 
 import { existsSync } from 'fs';
-import { readdir } from 'fs/promises';
+import { join } from 'path';
 
-interface CheckResult {
-  name: string;
-  exists: boolean;
-  type: 'file' | 'directory';
-}
-
-const checks: CheckResult[] = [];
-
-// Configuration files
-const configFiles = [
+const requiredFiles = [
+  // Root
   'package.json',
   'tsconfig.json',
-  '.gitignore',
-  '.eslintrc.js',
-  '.prettierrc',
-];
-
-// Documentation files
-const docFiles = [
-  'README.md',
-  'QUICKSTART.md',
-  'SCAFFOLD_SUMMARY.md',
-  'CHANGELOG.md',
-  'CONTRIBUTING.md',
-  'LICENSE',
-];
-
-// Source directories
-const srcDirs = [
-  'src',
-  'src/core',
-  'src/lexer',
-  'src/parser',
-  'src/vm',
-];
-
-// Source files
-const srcFiles = [
-  'src/index.ts',
-  'src/cli.ts',
-  'src/compiler.ts',
-  'src/core/index.ts',
+  'plan.json',
+  
+  // Core
   'src/core/interfaces.ts',
   'src/core/types.ts',
-  'src/lexer/index.ts',
+  'src/core/index.ts',
+  
+  // Lexer
   'src/lexer/lexer.ts',
-  'src/parser/index.ts',
+  'src/lexer/index.ts',
+  
+  // Parser
   'src/parser/parser.ts',
-  'src/vm/index.ts',
+  'src/parser/index.ts',
+  
+  // VM
+  'src/vm/MicroVM.ts',
   'src/vm/base-vm.ts',
   'src/vm/registry.ts',
   'src/vm/arithmetic-vm.ts',
@@ -68,125 +36,91 @@ const srcFiles = [
   'src/vm/memory-vm.ts',
   'src/vm/io-vm.ts',
   'src/vm/type-vm.ts',
-];
-
-// Test directories
-const testDirs = [
-  'test',
-  'tests',
-];
-
-// Test files
-const testFiles = [
-  'test/examples.ts',
-  'test/integration.test.ts',
-  'test/vm.test.ts',
-  'tests/compiler.test.ts',
-  'tests/index.test.ts',
+  'src/vm/index.ts',
+  
+  // VMS
+  'src/vms/arithmetic-vm.ts',
+  'src/vms/comparison-vm.ts',
+  'src/vms/control-flow-vm.ts',
+  'src/vms/function-vm.ts',
+  'src/vms/io-vm.ts',
+  'src/vms/memory-vm.ts',
+  'src/vms/type-vm.ts',
+  
+  // Main
+  'src/interfaces.ts',
+  'src/types.ts',
+  'src/lexer.ts',
+  'src/parser.ts',
+  'src/microvm-registry.ts',
+  'src/arithmetic-vm.ts',
+  'src/comparison-vm.ts',
+  'src/control-flow-vm.ts',
+  'src/function-vm.ts',
+  'src/memory-vm.ts',
+  'src/io-vm.ts',
+  'src/type-vm.ts',
+  'src/compiler.ts',
+  'src/cli.ts',
+  'src/index.ts',
+  
+  // Tests
   'tests/lexer.test.ts',
   'tests/parser.test.ts',
-  'tests/test-utils.ts',
   'tests/vm.test.ts',
-];
-
-// Example C files
-const exampleFiles = [
+  'tests/compiler.test.ts',
+  'tests/integration.test.ts',
+  'tests/test-utils.ts',
+  'tests/index.test.ts',
+  
+  'test/vm.test.ts',
+  'test/integration.test.ts',
+  'test/examples.ts',
+  
+  // Examples
   'examples/hello.c',
   'examples/variables.c',
   'examples/arithmetic.c',
   'examples/comparisons.c',
-  'examples/control-flow.c',
+  'examples/ifelse.c',
+  'examples/while.c',
+  'examples/for.c',
+  'examples/loops.c',
+  'examples/function.c',
   'examples/functions.c',
+  'examples/factorial.c',
+  'examples/fibonacci.c',
+  'examples/recursion.c',
   'examples/arrays.c',
+  'examples/multi-array.c',
   'examples/pointers.c',
   'examples/io.c',
-  'examples/recursion.c',
-  'examples/multi-array.c',
+  'examples/control-flow.c',
 ];
 
-async function checkExists(path: string, type: 'file' | 'directory'): Promise<boolean> {
-  try {
-    const stats = await Bun.file(path).stat();
-    return type === 'file' ? stats.isFile() : stats.isDirectory();
-  } catch {
-    return false;
-  }
-}
+const root = process.cwd();
+let missing = 0;
+let existing = 0;
 
-async function runChecks() {
-  console.log('🔍 Verifying Project Scaffold...\n');
+console.log('🔍 Verifying scaffold...\n');
 
-  // Check configuration files
-  console.log('📦 Configuration Files:');
-  for (const file of configFiles) {
-    const exists = await checkExists(file, 'file');
-    checks.push({ name: file, exists, type: 'file' });
-    console.log(`  ${exists ? '✅' : '❌'} ${file}`);
-  }
-
-  // Check documentation files
-  console.log('\n📚 Documentation Files:');
-  for (const file of docFiles) {
-    const exists = await checkExists(file, 'file');
-    checks.push({ name: file, exists, type: 'file' });
-    console.log(`  ${exists ? '✅' : '❌'} ${file}`);
-  }
-
-  // Check source directories
-  console.log('\n📁 Source Directories:');
-  for (const dir of srcDirs) {
-    const exists = await checkExists(dir, 'directory');
-    checks.push({ name: dir, exists, type: 'directory' });
-    console.log(`  ${exists ? '✅' : '❌'} ${dir}/`);
-  }
-
-  // Check source files
-  console.log('\n📄 Source Files:');
-  for (const file of srcFiles) {
-    const exists = await checkExists(file, 'file');
-    checks.push({ name: file, exists, type: 'file' });
-    console.log(`  ${exists ? '✅' : '❌'} ${file}`);
-  }
-
-  // Check test directories
-  console.log('\n🧪 Test Directories:');
-  for (const dir of testDirs) {
-    const exists = await checkExists(dir, 'directory');
-    checks.push({ name: dir, exists, type: 'directory' });
-    console.log(`  ${exists ? '✅' : '❌'} ${dir}/`);
-  }
-
-  // Check test files
-  console.log('\n📝 Test Files:');
-  for (const file of testFiles) {
-    const exists = await checkExists(file, 'file');
-    checks.push({ name: file, exists, type: 'file' });
-    console.log(`  ${exists ? '✅' : '❌'} ${file}`);
-  }
-
-  // Check example files
-  console.log('\n💡 Example C Programs:');
-  for (const file of exampleFiles) {
-    const exists = await checkExists(file, 'file');
-    checks.push({ name: file, exists, type: 'file' });
-    console.log(`  ${exists ? '✅' : '❌'} ${file}`);
-  }
-
-  // Summary
-  const total = checks.length;
-  const passed = checks.filter(c => c.exists).length;
-  const failed = total - passed;
-
-  console.log('\n' + '='.repeat(50));
-  console.log(`📊 Summary: ${passed}/${total} checks passed`);
-  if (failed > 0) {
-    console.log(`⚠️  ${failed} checks failed`);
+for (const file of requiredFiles) {
+  const fullPath = join(root, file);
+  if (existsSync(fullPath)) {
+    console.log(`✅ ${file}`);
+    existing++;
   } else {
-    console.log('✅ All checks passed! Scaffold is complete.');
+    console.log(`❌ ${file} - MISSING`);
+    missing++;
   }
-  console.log('='.repeat(50));
-
-  process.exit(failed > 0 ? 1 : 0);
 }
 
-runChecks().catch(console.error);
+console.log(`\n📊 Summary: ${existing} existing, ${missing} missing\n`);
+
+if (missing === 0) {
+  console.log('✨ Scaffold is complete!');
+  process.exit(0);
+} else {
+  console.log('⚠️  Scaffold is incomplete!');
+  process.exit(1);
+}

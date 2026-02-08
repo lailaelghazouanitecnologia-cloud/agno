@@ -1,351 +1,181 @@
 edges:
-- from: intent-c71c4f48
-  to: plan-core-interfaces
+- from: intent-deff7f09
+  to: plan-m001
   relation: parent
   weight: 1.0
   meta: {}
-- from: intent-c71c4f48
-  to: plan-lexer
+- from: intent-deff7f09
+  to: plan-m002
   relation: parent
   weight: 1.0
   meta: {}
-- from: intent-c71c4f48
-  to: plan-parser
+- from: intent-deff7f09
+  to: plan-m003
   relation: parent
   weight: 1.0
   meta: {}
-- from: intent-c71c4f48
-  to: plan-microvm-registry
+- from: intent-deff7f09
+  to: plan-m004
   relation: parent
   weight: 1.0
   meta: {}
-- from: intent-c71c4f48
-  to: plan-arithmetic-vm
+- from: intent-deff7f09
+  to: plan-m005
   relation: parent
   weight: 1.0
   meta: {}
-- from: intent-c71c4f48
-  to: plan-comparison-vm
+- from: intent-deff7f09
+  to: plan-m006
   relation: parent
   weight: 1.0
   meta: {}
-- from: intent-c71c4f48
-  to: plan-controlflow-vm
+- from: intent-deff7f09
+  to: plan-m007
   relation: parent
   weight: 1.0
   meta: {}
-- from: intent-c71c4f48
-  to: plan-function-vm
+- from: intent-deff7f09
+  to: plan-m008
   relation: parent
   weight: 1.0
   meta: {}
-- from: intent-c71c4f48
-  to: plan-memory-vm
+- from: intent-deff7f09
+  to: plan-m009
   relation: parent
   weight: 1.0
   meta: {}
-- from: intent-c71c4f48
-  to: plan-io-vm
+- from: intent-deff7f09
+  to: plan-m010
   relation: parent
   weight: 1.0
   meta: {}
-- from: intent-c71c4f48
-  to: plan-type-vm
+- from: intent-deff7f09
+  to: plan-m011
   relation: parent
   weight: 1.0
   meta: {}
-- from: intent-c71c4f48
-  to: plan-compiler
+- from: intent-deff7f09
+  to: plan-m012
   relation: parent
   weight: 1.0
   meta: {}
-- from: intent-c71c4f48
-  to: plan-cli
+- from: intent-deff7f09
+  to: plan-m013
   relation: parent
   weight: 1.0
   meta: {}
-- from: intent-c71c4f48
-  to: plan-tests
+- from: intent-deff7f09
+  to: plan-m014
   relation: parent
-  weight: 1.0
-  meta: {}
-- from: intent-c71c4f48
-  to: plan-config
-  relation: parent
-  weight: 1.0
-  meta: {}
-- from: plan-lexer
-  to: plan-core-interfaces
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-parser
-  to: plan-core-interfaces
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-parser
-  to: plan-lexer
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-microvm-registry
-  to: plan-core-interfaces
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-arithmetic-vm
-  to: plan-core-interfaces
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-arithmetic-vm
-  to: plan-microvm-registry
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-comparison-vm
-  to: plan-core-interfaces
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-comparison-vm
-  to: plan-microvm-registry
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-controlflow-vm
-  to: plan-core-interfaces
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-controlflow-vm
-  to: plan-microvm-registry
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-function-vm
-  to: plan-core-interfaces
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-function-vm
-  to: plan-microvm-registry
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-memory-vm
-  to: plan-core-interfaces
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-memory-vm
-  to: plan-microvm-registry
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-io-vm
-  to: plan-core-interfaces
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-io-vm
-  to: plan-microvm-registry
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-type-vm
-  to: plan-core-interfaces
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-type-vm
-  to: plan-microvm-registry
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-compiler
-  to: plan-core-interfaces
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-compiler
-  to: plan-lexer
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-compiler
-  to: plan-parser
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-compiler
-  to: plan-microvm-registry
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-compiler
-  to: plan-arithmetic-vm
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-compiler
-  to: plan-comparison-vm
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-compiler
-  to: plan-controlflow-vm
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-compiler
-  to: plan-function-vm
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-compiler
-  to: plan-memory-vm
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-compiler
-  to: plan-io-vm
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-compiler
-  to: plan-type-vm
-  relation: depends_on
-  weight: 1.0
-  meta: {}
-- from: plan-cli
-  to: plan-compiler
-  relation: depends_on
   weight: 1.0
   meta: {}
 - from: action-scaffold-iter1
-  to: plan-core-interfaces
+  to: plan-m001
   relation: related
   weight: 1.0
   meta: {}
 - from: action-scaffold-iter1
-  to: plan-lexer
+  to: plan-m002
   relation: related
   weight: 1.0
   meta: {}
 - from: action-scaffold-iter1
-  to: plan-parser
+  to: plan-m003
   relation: related
   weight: 1.0
   meta: {}
 - from: action-scaffold-iter1
-  to: plan-microvm-registry
+  to: plan-m004
   relation: related
   weight: 1.0
   meta: {}
 - from: action-scaffold-iter1
-  to: plan-arithmetic-vm
+  to: plan-m005
   relation: related
   weight: 1.0
   meta: {}
 - from: action-scaffold-iter1
-  to: plan-comparison-vm
+  to: plan-m006
   relation: related
   weight: 1.0
   meta: {}
 - from: action-scaffold-iter1
-  to: plan-controlflow-vm
+  to: plan-m007
   relation: related
   weight: 1.0
   meta: {}
 - from: action-scaffold-iter1
-  to: plan-function-vm
+  to: plan-m008
   relation: related
   weight: 1.0
   meta: {}
 - from: action-scaffold-iter1
-  to: plan-memory-vm
+  to: plan-m009
   relation: related
   weight: 1.0
   meta: {}
 - from: action-scaffold-iter1
-  to: plan-io-vm
+  to: plan-m010
   relation: related
   weight: 1.0
   meta: {}
 - from: action-scaffold-iter1
-  to: plan-type-vm
+  to: plan-m011
   relation: related
   weight: 1.0
   meta: {}
 - from: action-scaffold-iter1
-  to: plan-compiler
+  to: plan-m012
   relation: related
   weight: 1.0
   meta: {}
 - from: action-scaffold-iter1
-  to: plan-cli
+  to: plan-m013
   relation: related
   weight: 1.0
   meta: {}
 - from: action-scaffold-iter1
-  to: plan-tests
+  to: plan-m014
   relation: related
   weight: 1.0
   meta: {}
-- from: action-scaffold-iter1
-  to: plan-config
+- from: action-test-iter2
+  to: plan-m001
   relation: related
   weight: 1.0
   meta: {}
-- from: action-implement-iter2
-  to: plan-core-interfaces
+- from: action-test-iter2
+  to: intent-deff7f09
   relation: related
   weight: 1.0
   meta: {}
-- from: action-implement-iter2
-  to: intent-c71c4f48
+- from: action-fix-iter3
+  to: plan-m001
   relation: related
   weight: 1.0
   meta: {}
-- from: action-implement-iter3
-  to: plan-core-interfaces
+- from: action-fix-iter3
+  to: intent-deff7f09
   relation: related
   weight: 1.0
   meta: {}
-- from: action-implement-iter3
-  to: intent-c71c4f48
+- from: action-fix-iter4
+  to: plan-m001
   relation: related
   weight: 1.0
   meta: {}
-- from: action-implement-iter4
-  to: plan-lexer
+- from: action-fix-iter4
+  to: intent-deff7f09
   relation: related
   weight: 1.0
   meta: {}
-- from: action-implement-iter4
-  to: intent-c71c4f48
+- from: action-test-iter5
+  to: plan-m002
   relation: related
   weight: 1.0
   meta: {}
-- from: action-implement-iter4
-  to: plan-core-interfaces
-  relation: related
-  weight: 1.0
-  meta: {}
-- from: action-implement-iter5
-  to: plan-microvm-registry
-  relation: related
-  weight: 1.0
-  meta: {}
-- from: action-implement-iter5
-  to: intent-c71c4f48
-  relation: related
-  weight: 1.0
-  meta: {}
-- from: action-implement-iter5
-  to: plan-core-interfaces
+- from: action-test-iter5
+  to: intent-deff7f09
   relation: related
   weight: 1.0
   meta: {}

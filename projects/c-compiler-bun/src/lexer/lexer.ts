@@ -1,391 +1,406 @@
-import { TokenType, Token } from "../interfaces/index.js";
+/**
+ * Lexer - Tokenizes C source code
+ */
+
+import { TokenType, Token } from '../core/types.js';
 
 /**
- * Lexer (Tokenizer) for C source code
- * Converts source code into a stream of tokens
+ * Lexer class for tokenizing C source code
  */
 export class Lexer {
   private source: string;
-  private position: number = 0;
-  private line: number = 1;
-  private column: number = 1;
-  private tokens: Token[] = [];
-  
-  // Keyword mapping
-  private static readonly KEYWORDS: Map<string, TokenType> = new Map([
-    ["int", TokenType.INT],
-    ["char", TokenType.CHAR],
-    ["float", TokenType.FLOAT],
-    ["void", TokenType.VOID],
-    ["if", TokenType.IF],
-    ["else", TokenType.ELSE],
-    ["while", TokenType.WHILE],
-    ["for", TokenType.FOR],
-    ["return", TokenType.RETURN]
-  ]);
-  
-  // Multi-character operators
-  private static readonly OPERATORS: Map<string, TokenType> = new Map([
-    ["<=", TokenType.LESS_EQUAL],
-    [">=", TokenType.GREATER_EQUAL],
-    ["==", TokenType.EQUAL],
-    ["!=", TokenType.NOT_EQUAL]
-  ]);
-  
-  constructor(source: string) {
+  private position: number;
+  private line: number;
+  private column: number;
+  private tokens: Token[];
+
+  constructor(source: string = '') {
     this.source = source;
-  }
-  
-  /**
-   * Tokenize the entire source code
-   */
-  public tokenize(): Token[] {
-    this.tokens = [];
     this.position = 0;
     this.line = 1;
     this.column = 1;
-    
-    while (!this.isAtEnd()) {
-      const token = this.scanToken();
-      if (token) {
-        this.tokens.push(token);
-      }
+    this.tokens = [];
+  }
+
+  /**
+   * Tokenize the source code
+   */
+  tokenize(source?: string): Token[] {
+    if (source !== undefined) {
+      this.source = source;
     }
-    
+    this.position = 0;
+    this.line = 1;
+    this.column = 1;
+    this.tokens = [];
+
+    while (this.position < this.source.length) {
+      this.skipWhitespace();
+      
+      if (this.position >= this.source.length) {
+        break;
+      }
+
+      const char = this.source[this.position];
+
+      // Skip comments
+      if (char === '/' && this.peek() === '*') {
+        this.skipBlockComment();
+        continue;
+      }
+
+      if (char === '/' && this.peek() === '/') {
+        this.skipLineComment();
+        continue;
+      }
+
+      // String literal
+      if (char === '"') {
+        this.tokens.push(this.readString());
+        continue;
+      }
+
+      // Character literal
+      if (char === "'") {
+        this.tokens.push(this.readChar());
+        continue;
+      }
+
+      // Number
+      if (this.isDigit(char)) {
+        this.tokens.push(this.readNumber());
+        continue;
+      }
+
+      // Identifier or keyword
+      if (this.isAlpha(char) || char === '_') {
+        this.tokens.push(this.readIdentifier());
+        continue;
+      }
+
+      // Operators and punctuation
+      this.tokens.push(this.readOperator());
+    }
+
     // Add EOF token
     this.tokens.push({
       type: TokenType.EOF,
-      value: "",
+      value: '',
       line: this.line,
-      column: this.column
+      column: this.column,
     });
-    
+
     return this.tokens;
   }
-  
+
   /**
-   * Scan a single token
+   * Get current position
    */
-  private scanToken(): Token | null {
-    const startLine = this.line;
-    const startColumn = this.column;
-    
-    const char = this.advance();
-    
-    // Skip whitespace
-    if (this.isWhitespace(char)) {
-      return null;
-    }
-    
-    // Skip comments
-    if (char === '/' && this.peek() === '/') {
-      this.skipLineComment();
-      return null;
-    }
-    
-    if (char === '/' && this.peek() === '*') {
-      this.skipBlockComment();
-      return null;
-    }
-    
-    // Newlines
+  getPosition(): { line: number; column: number } {
+    return { line: this.line, column: this.column };
+  }
+
+  /**
+   * Reset lexer state
+   */
+  reset(): void {
+    this.position = 0;
+    this.line = 1;
+    this.column = 1;
+    this.tokens = [];
+  }
+
+  private peek(offset: number = 1): string {
+    return this.source[this.position + offset] || '';
+  }
+
+  private advance(): string {
+    const char = this.source[this.position];
+    this.position++;
     if (char === '\n') {
       this.line++;
       this.column = 1;
-      return null;
+    } else {
+      this.column++;
     }
-    
-    // String literals
-    if (char === '"') {
-      return this.readStringLiteral(startLine, startColumn);
-    }
-    
-    // Character literals
-    if (char === "'") {
-      return this.readCharLiteral(startLine, startColumn);
-    }
-    
-    // Numbers
-    if (this.isDigit(char)) {
-      return this.readNumber(char, startLine, startColumn);
-    }
-    
-    // Identifiers and keywords
-    if (this.isAlpha(char)) {
-      return this.readIdentifier(char, startLine, startColumn);
-    }
-    
-    // Operators and punctuation
-    switch (char) {
-      case '+':
-        return this.createToken(TokenType.PLUS, "+", startLine, startColumn);
-      case '-':
-        return this.createToken(TokenType.MINUS, "-", startLine, startColumn);
-      case '*':
-        return this.createToken(TokenType.STAR, "*", startLine, startColumn);
-      case '/':
-        return this.createToken(TokenType.SLASH, "/", startLine, startColumn);
-      case '%':
-        return this.createToken(TokenType.PERCENT, "%", startLine, startColumn);
-      case '<':
-        if (this.match('=')) {
-          return this.createToken(TokenType.LESS_EQUAL, "<=", startLine, startColumn);
-        }
-        return this.createToken(TokenType.LESS, "<", startLine, startColumn);
-      case '>':
-        if (this.match('=')) {
-          return this.createToken(TokenType.GREATER_EQUAL, ">=", startLine, startColumn);
-        }
-        return this.createToken(TokenType.GREATER, ">", startLine, startColumn);
-      case '=':
-        if (this.match('=')) {
-          return this.createToken(TokenType.EQUAL, "==", startLine, startColumn);
-        }
-        return this.createToken(TokenType.ASSIGN, "=", startLine, startColumn);
-      case '!':
-        if (this.match('=')) {
-          return this.createToken(TokenType.NOT_EQUAL, "!=", startLine, startColumn);
-        }
-        break;
-      case '&':
-        return this.createToken(TokenType.AMPERSAND, "&", startLine, startColumn);
-      case ';':
-        return this.createToken(TokenType.SEMICOLON, ";", startLine, startColumn);
-      case ',':
-        return this.createToken(TokenType.COMMA, ",", startLine, startColumn);
-      case '(':
-        return this.createToken(TokenType.LPAREN, "(", startLine, startColumn);
-      case ')':
-        return this.createToken(TokenType.RPAREN, ")", startLine, startColumn);
-      case '{':
-        return this.createToken(TokenType.LBRACE, "{", startLine, startColumn);
-      case '}':
-        return this.createToken(TokenType.RBRACE, "}", startLine, startColumn);
-      case '[':
-        return this.createToken(TokenType.LBRACKET, "[", startLine, startColumn);
-      case ']':
-        return this.createToken(TokenType.RBRACKET, "]", startLine, startColumn);
-    }
-    
-    // Unknown character
-    return this.createToken(TokenType.UNKNOWN, char, startLine, startColumn);
+    return char;
   }
-  
-  /**
-   * Read a string literal
-   */
-  private readStringLiteral(startLine: number, startColumn: number): Token {
-    let value = "";
+
+  private skipWhitespace(): void {
+    while (this.position < this.source.length) {
+      const char = this.source[this.position];
+      if (char === ' ' || char === '\t' || char === '\n' || char === '\r') {
+        this.advance();
+      } else {
+        break;
+      }
+    }
+  }
+
+  private skipBlockComment(): void {
+    this.advance(); // '/'
+    this.advance(); // '*'
     
-    while (!this.isAtEnd() && this.peek() !== '"') {
-      const char = this.advance();
+    while (this.position < this.source.length) {
+      if (this.source[this.position] === '*' && this.peek() === '/') {
+        this.advance();
+        this.advance();
+        return;
+      }
+      this.advance();
+    }
+  }
+
+  private skipLineComment(): void {
+    this.advance(); // '/'
+    this.advance(); // '/'
+    
+    while (this.position < this.source.length) {
+      if (this.source[this.position] === '\n') {
+        return;
+      }
+      this.advance();
+    }
+  }
+
+  private readString(): Token {
+    const startLine = this.line;
+    const startColumn = this.column;
+    this.advance(); // '"'
+
+    let value = '';
+    while (this.position < this.source.length) {
+      const char = this.source[this.position];
       
-      // Handle escape sequences
-      if (char === '\\' && !this.isAtEnd()) {
-        const next = this.advance();
-        switch (next) {
+      if (char === '\\') {
+        this.advance();
+        const escaped = this.source[this.position];
+        switch (escaped) {
           case 'n': value += '\n'; break;
           case 't': value += '\t'; break;
           case 'r': value += '\r'; break;
           case '\\': value += '\\'; break;
           case '"': value += '"'; break;
-          default: value += next;
+          case "'": value += "'"; break;
+          default: value += escaped;
         }
-      } else {
-        value += char;
+        this.advance();
+        continue;
       }
-    }
-    
-    if (this.isAtEnd()) {
-      throw new Error(`Unterminated string literal at line ${startLine}`);
-    }
-    
-    this.advance(); // Consume closing quote
-    
-    return this.createToken(TokenType.STRING_LITERAL, value, startLine, startColumn);
-  }
-  
-  /**
-   * Read a character literal
-   */
-  private readCharLiteral(startLine: number, startColumn: number): Token {
-    let value = "";
-    
-    if (this.isAtEnd() || this.peek() === "'") {
-      throw new Error(`Empty character literal at line ${startLine}`);
-    }
-    
-    const char = this.advance();
-    
-    // Handle escape sequences
-    if (char === '\\' && !this.isAtEnd()) {
-      const next = this.advance();
-      switch (next) {
-        case 'n': value = '\n'; break;
-        case 't': value = '\t'; break;
-        case 'r': value = '\r'; break;
-        case '\\': value = '\\'; break;
-        case "'": value = "'"; break;
-        case '0': value = '\0'; break;
-        default: value = next;
+
+      if (char === '"') {
+        this.advance();
+        return {
+          type: TokenType.STRING,
+          value,
+          line: startLine,
+          column: startColumn,
+        };
       }
-    } else {
-      value = char;
-    }
-    
-    if (this.isAtEnd() || this.peek() !== "'") {
-      throw new Error(`Unterminated character literal at line ${startLine}`);
-    }
-    
-    this.advance(); // Consume closing quote
-    
-    return this.createToken(TokenType.CHAR_LITERAL, value, startLine, startColumn);
-  }
-  
-  /**
-   * Read a number (integer or float)
-   */
-  private readNumber(first: string, startLine: number, startColumn: number): Token {
-    let value = first;
-    let isFloat = false;
-    
-    while (!this.isAtEnd() && (this.isDigit(this.peek()) || this.peek() === '.')) {
-      if (this.peek() === '.') {
-        if (isFloat) {
-          throw new Error(`Invalid number format at line ${startLine}`);
-        }
-        isFloat = true;
-      }
-      value += this.advance();
-    }
-    
-    const type = isFloat ? TokenType.FLOAT_LITERAL : TokenType.INTEGER_LITERAL;
-    return this.createToken(type, value, startLine, startColumn);
-  }
-  
-  /**
-   * Read an identifier or keyword
-   */
-  private readIdentifier(first: string, startLine: number, startColumn: number): Token {
-    let value = first;
-    
-    while (!this.isAtEnd() && this.isAlphaNumeric(this.peek())) {
-      value += this.advance();
-    }
-    
-    // Check if it's a keyword
-    const keywordType = Lexer.KEYWORDS.get(value);
-    if (keywordType) {
-      return this.createToken(keywordType, value, startLine, startColumn);
-    }
-    
-    return this.createToken(TokenType.IDENTIFIER, value, startLine, startColumn);
-  }
-  
-  /**
-   * Skip a line comment (// ...)
-   */
-  private skipLineComment(): void {
-    while (!this.isAtEnd() && this.peek() !== '\n') {
+
+      value += char;
       this.advance();
     }
+
+    throw new Error('Unterminated string literal');
   }
-  
-  /**
-   * Skip a block comment (/* ... *\/)
-   */
-  private skipBlockComment(): void {
-    this.advance(); // Consume *
-    
-    while (!this.isAtEnd()) {
-      if (this.peek() === '*' && this.peekNext() === '/') {
-        this.advance(); // Consume *
-        this.advance(); // Consume /
-        return;
-      }
+
+  private readChar(): Token {
+    const startLine = this.line;
+    const startColumn = this.column;
+    this.advance(); // "'"
+
+    let value = '';
+    while (this.position < this.source.length) {
+      const char = this.source[this.position];
       
-      const char = this.advance();
-      if (char === '\n') {
-        this.line++;
-        this.column = 1;
+      if (char === '\\') {
+        this.advance();
+        const escaped = this.source[this.position];
+        switch (escaped) {
+          case 'n': value += '\n'; break;
+          case 't': value += '\t'; break;
+          case 'r': value += '\r'; break;
+          case '\\': value += '\\'; break;
+          case '"': value += '"'; break;
+          case "'": value += "'"; break;
+          case '0': value += '\0'; break;
+          default: value += escaped;
+        }
+        this.advance();
+        continue;
       }
+
+      if (char === "'") {
+        this.advance();
+        return {
+          type: TokenType.CHARACTER,
+          value,
+          line: startLine,
+          column: startColumn,
+        };
+      }
+
+      value += char;
+      this.advance();
     }
+
+    throw new Error('Unterminated character literal');
+  }
+
+  private readNumber(): Token {
+    const startLine = this.line;
+    const startColumn = this.column;
+
+    let value = '';
+    let isFloat = false;
+
+    while (this.position < this.source.length) {
+      const char = this.source[this.position];
+      
+      if (char === '.' && !isFloat) {
+        isFloat = true;
+        value += char;
+        this.advance();
+        continue;
+      }
+
+      if (this.isDigit(char)) {
+        value += char;
+        this.advance();
+        continue;
+      }
+
+      break;
+    }
+
+    return {
+      type: isFloat ? TokenType.FLOAT_LITERAL : TokenType.INTEGER,
+      value,
+      line: startLine,
+      column: startColumn,
+    };
+  }
+
+  private readIdentifier(): Token {
+    const startLine = this.line;
+    const startColumn = this.column;
+
+    let value = '';
+    while (this.position < this.source.length) {
+      const char = this.source[this.position];
+      
+      if (this.isAlphaNumeric(char) || char === '_') {
+        value += char;
+        this.advance();
+        continue;
+      }
+
+      break;
+    }
+
+    // Check for keywords
+    const keyword = this.getKeyword(value);
+    if (keyword) {
+      return {
+        type: keyword,
+        value,
+        line: startLine,
+        column: startColumn,
+      };
+    }
+
+    return {
+      type: TokenType.IDENTIFIER,
+      value,
+      line: startLine,
+      column: startColumn,
+    };
+  }
+
+  private readOperator(): Token {
+    const startLine = this.line;
+    const startColumn = this.column;
+    const char = this.advance();
+
+    // Multi-character operators
+    const twoChar = char + this.peek();
     
-    throw new Error(`Unterminated block comment starting at line ${this.line}`);
-  }
-  
-  /**
-   * Create a token
-   */
-  private createToken(type: TokenType, value: string, line: number, column: number): Token {
-    return { type, value, line, column };
-  }
-  
-  /**
-   * Advance to the next character
-   */
-  private advance(): string {
-    const char = this.source[this.position++];
-    this.column++;
-    return char;
-  }
-  
-  /**
-   * Peek at the current character without consuming it
-   */
-  private peek(): string {
-    return this.source[this.position] || '\0';
-  }
-  
-  /**
-   * Peek at the next character
-   */
-  private peekNext(): string {
-    return this.source[this.position + 1] || '\0';
-  }
-  
-  /**
-   * Check if the current character matches the expected one
-   */
-  private match(expected: string): boolean {
-    if (this.isAtEnd() || this.source[this.position] !== expected) {
-      return false;
+    switch (twoChar) {
+      case '==': this.advance(); return { type: TokenType.EQUAL, value: '==', line: startLine, column: startColumn };
+      case '!=': this.advance(); return { type: TokenType.NOT_EQUAL, value: '!=', line: startLine, column: startColumn };
+      case '<=': this.advance(); return { type: TokenType.LESS_EQUAL, value: '<=', line: startLine, column: startColumn };
+      case '>=': this.advance(); return { type: TokenType.GREATER_EQUAL, value: '>=', line: startLine, column: startColumn };
+      case '&&': this.advance(); return { type: TokenType.AND, value: '&&', line: startLine, column: startColumn };
+      case '||': this.advance(); return { type: TokenType.OR, value: '||', line: startLine, column: startColumn };
+      case '++': this.advance(); return { type: TokenType.PLUS, value: '++', line: startLine, column: startColumn };
+      case '--': this.advance(); return { type: TokenType.MINUS, value: '--', line: startLine, column: startColumn };
+      case '<<': this.advance(); return { type: TokenType.LESS, value: '<<', line: startLine, column: startColumn };
+      case '>>': this.advance(); return { type: TokenType.GREATER, value: '>>', line: startLine, column: startColumn };
+      case '+=': this.advance(); return { type: TokenType.PLUS_ASSIGN, value: '+=', line: startLine, column: startColumn };
+      case '-=': this.advance(); return { type: TokenType.MINUS_ASSIGN, value: '-=', line: startLine, column: startColumn };
+      case '*=': this.advance(); return { type: TokenType.MULTIPLY_ASSIGN, value: '*=', line: startLine, column: startColumn };
+      case '/=': this.advance(); return { type: TokenType.DIVIDE_ASSIGN, value: '/=', line: startLine, column: startColumn };
+      case '->': this.advance(); return { type: TokenType.ARROW, value: '->', line: startLine, column: startColumn };
     }
-    this.advance();
-    return true;
+
+    // Single-character operators
+    switch (char) {
+      case '+': return { type: TokenType.PLUS, value: '+', line: startLine, column: startColumn };
+      case '-': return { type: TokenType.MINUS, value: '-', line: startLine, column: startColumn };
+      case '*': return { type: TokenType.MULTIPLY, value: '*', line: startLine, column: startColumn };
+      case '/': return { type: TokenType.DIVIDE, value: '/', line: startLine, column: startColumn };
+      case '%': return { type: TokenType.MODULO, value: '%', line: startLine, column: startColumn };
+      case '<': return { type: TokenType.LESS, value: '<', line: startLine, column: startColumn };
+      case '>': return { type: TokenType.GREATER, value: '>', line: startLine, column: startColumn };
+      case '=': return { type: TokenType.ASSIGN, value: '=', line: startLine, column: startColumn };
+      case '!': return { type: TokenType.NOT, value: '!', line: startLine, column: startColumn };
+      case '&': return { type: TokenType.ADDRESS, value: '&', line: startLine, column: startColumn };
+      case '|': return { type: TokenType.OR, value: '|', line: startLine, column: startColumn };
+      case '^': return { type: TokenType.UNKNOWN, value: '^', line: startLine, column: startColumn };
+      case '~': return { type: TokenType.UNKNOWN, value: '~', line: startLine, column: startColumn };
+      case '?': return { type: TokenType.UNKNOWN, value: '?', line: startLine, column: startColumn };
+      case ':': return { type: TokenType.UNKNOWN, value: ':', line: startLine, column: startColumn };
+      case ';': return { type: TokenType.SEMICOLON, value: ';', line: startLine, column: startColumn };
+      case ',': return { type: TokenType.COMMA, value: ',', line: startLine, column: startColumn };
+      case '.': return { type: TokenType.DOT, value: '.', line: startLine, column: startColumn };
+      case '(': return { type: TokenType.LEFT_PAREN, value: '(', line: startLine, column: startColumn };
+      case ')': return { type: TokenType.RIGHT_PAREN, value: ')', line: startLine, column: startColumn };
+      case '{': return { type: TokenType.LEFT_BRACE, value: '{', line: startLine, column: startColumn };
+      case '}': return { type: TokenType.RIGHT_BRACE, value: '}', line: startLine, column: startColumn };
+      case '[': return { type: TokenType.LEFT_BRACKET, value: '[', line: startLine, column: startColumn };
+      case ']': return { type: TokenType.RIGHT_BRACKET, value: ']', line: startLine, column: startColumn };
+      default:
+        return { type: TokenType.UNKNOWN, value: char, line: startLine, column: startColumn };
+    }
   }
-  
-  /**
-   * Check if we're at the end of the source
-   */
-  private isAtEnd(): boolean {
-    return this.position >= this.source.length;
+
+  private getKeyword(value: string): TokenType | undefined {
+    const keywords: Record<string, TokenType> = {
+      'int': TokenType.INT,
+      'char': TokenType.CHAR,
+      'float': TokenType.FLOAT,
+      'void': TokenType.VOID,
+      'if': TokenType.IF,
+      'else': TokenType.ELSE,
+      'while': TokenType.WHILE,
+      'for': TokenType.FOR,
+      'return': TokenType.RETURN,
+      'break': TokenType.BREAK,
+      'continue': TokenType.CONTINUE,
+    };
+
+    return keywords[value];
   }
-  
-  /**
-   * Check if a character is whitespace
-   */
-  private isWhitespace(char: string): boolean {
-    return char === ' ' || char === '\t' || char === '\r';
-  }
-  
-  /**
-   * Check if a character is a digit
-   */
+
   private isDigit(char: string): boolean {
     return char >= '0' && char <= '9';
   }
-  
-  /**
-   * Check if a character is alphabetic
-   */
+
   private isAlpha(char: string): boolean {
-    return (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || char === '_';
+    return (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z');
   }
-  
-  /**
-   * Check if a character is alphanumeric
-   */
+
   private isAlphaNumeric(char: string): boolean {
     return this.isAlpha(char) || this.isDigit(char);
   }

@@ -1,117 +1,162 @@
 /**
- * ArithmeticVM - Handles arithmetic operations: +, -, *, /, %
+ * ArithmeticVM - Handles arithmetic operations (+, -, *, /, %)
  */
 
-import { BaseMicroVM } from './base-vm.js';
-import { ExecutionContext, ExecutionResult, VMInstruction } from '../core/interfaces.js';
-import { VMOperation, RuntimeValue, RuntimeType } from '../core/types.js';
+import { BaseVM } from './base-vm.js';
+import { ASTNode, ExecutionContext, ExecutionResult, ValueType } from '../core/interfaces.js';
+import { NodeType, BinaryOp, UnaryOp } from '../core/types.js';
 
-export class ArithmeticVM extends BaseMicroVM {
-  readonly name = 'ArithmeticVM';
+/**
+ * ArithmeticVM - handles arithmetic operations
+ */
+export class ArithmeticVM extends BaseVM {
+  readonly name = 'arithmetic';
 
-  constructor() {
-    super();
-    this.registerOperation(VMOperation.ADD);
-    this.registerOperation(VMOperation.SUB);
-    this.registerOperation(VMOperation.MUL);
-    this.registerOperation(VMOperation.DIV);
-    this.registerOperation(VMOperation.MOD);
-  }
+  execute(node: ASTNode, context: ExecutionContext): ExecutionResult {
+    try {
+      let result: ValueType;
 
-  protected executeInstruction(
-    instruction: VMInstruction,
-    context: ExecutionContext
-  ): ExecutionResult {
-    const { operation, operands } = instruction;
+      switch (node.type) {
+        case NodeType.BINARY_EXPR:
+          result = this.executeBinary(node, context);
+          break;
 
-    if (operands.length < 2) {
-      return {
-        success: false,
-        error: `Arithmetic operation requires 2 operands, got ${operands.length}`,
-      };
-    }
+        case NodeType.UNARY_EXPR:
+          result = this.executeUnary(node, context);
+          break;
 
-    const left = this.getRuntimeValue(operands[0]);
-    const right = this.getRuntimeValue(operands[1]);
+        case NodeType.INTEGER_LITERAL:
+        case NodeType.FLOAT_LITERAL:
+          result = (node as { value: number }).value;
+          break;
 
-    if (!left || !right) {
-      return {
-        success: false,
-        error: 'Invalid operands for arithmetic operation',
-      };
-    }
-
-    let result: number;
-    let resultType: RuntimeType;
-
-    // Determine result type (float if either operand is float)
-    if (left.type === RuntimeType.FLOAT || right.type === RuntimeType.FLOAT) {
-      resultType = RuntimeType.FLOAT;
-    } else {
-      resultType = RuntimeType.INT;
-    }
-
-    const leftVal = this.toNumber(left);
-    const rightVal = this.toNumber(right);
-
-    switch (operation) {
-      case VMOperation.ADD:
-        result = leftVal + rightVal;
-        break;
-      case VMOperation.SUB:
-        result = leftVal - rightVal;
-        break;
-      case VMOperation.MUL:
-        result = leftVal * rightVal;
-        break;
-      case VMOperation.DIV:
-        if (rightVal === 0) {
+        default:
           return {
             success: false,
-            error: 'Division by zero',
+            error: `ArithmeticVM cannot handle node type: ${node.type}`,
           };
-        }
-        result = leftVal / rightVal;
-        break;
-      case VMOperation.MOD:
-        if (rightVal === 0) {
-          return {
-            success: false,
-            error: 'Modulo by zero',
-          };
-        }
-        result = leftVal % rightVal;
-        break;
-      default:
-        return {
-          success: false,
-          error: `Unknown arithmetic operation: ${operation}`,
-        };
-    }
+      }
 
-    return {
-      success: true,
-      value: {
-        type: resultType,
+      return {
+        success: true,
         value: result,
-      },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  canHandle(node: ASTNode): boolean {
+    return (
+      node.type === NodeType.BINARY_EXPR ||
+      node.type === NodeType.UNARY_EXPR ||
+      node.type === NodeType.INTEGER_LITERAL ||
+      node.type === NodeType.FLOAT_LITERAL
+    );
+  }
+
+  private executeBinary(node: ASTNode, context: ExecutionContext): number {
+    const expr = node as {
+      operator: BinaryOp;
+      left: ASTNode;
+      right: ASTNode;
     };
+
+    const leftResult = this.evaluateNode(expr.left, context);
+    const rightResult = this.evaluateNode(expr.right, context);
+
+    const left = this.toNumber(leftResult);
+    const right = this.toNumber(rightResult);
+
+    switch (expr.operator) {
+      case BinaryOp.ADD:
+        return left + right;
+      case BinaryOp.SUB:
+        return left - right;
+      case BinaryOp.MUL:
+        return left * right;
+      case BinaryOp.DIV:
+        if (right === 0) {
+          throw new Error('Division by zero');
+        }
+        return left / right;
+      case BinaryOp.MOD:
+        if (right === 0) {
+          throw new Error('Modulo by zero');
+        }
+        return left % right;
+      default:
+        throw new Error(`Unknown binary operator: ${expr.operator}`);
+    }
   }
 
-  private getRuntimeValue(operand: unknown): RuntimeValue | undefined {
-    if (typeof operand === 'object' && operand !== null && 'type' in operand && 'value' in operand) {
-      return operand as RuntimeValue;
+  private executeUnary(node: ASTNode, context: ExecutionContext): number {
+    const expr = node as {
+      operator: UnaryOp;
+      operand: ASTNode;
+    };
+
+    const operandResult = this.evaluateNode(expr.operand, context);
+    const operand = this.toNumber(operandResult);
+
+    switch (expr.operator) {
+      case UnaryOp.POS:
+        return +operand;
+      case UnaryOp.NEG:
+        return -operand;
+      case UnaryOp.PRE_INC:
+      case UnaryOp.POST_INC:
+        // For increment/decrement, we'd need to handle variable assignment
+        // This is a simplified version
+        return operand + 1;
+      case UnaryOp.PRE_DEC:
+      case UnaryOp.POST_DEC:
+        return operand - 1;
+      default:
+        throw new Error(`Unknown unary operator: ${expr.operator}`);
     }
-    return undefined;
   }
 
-  private toNumber(value: RuntimeValue): number {
-    if (typeof value.value === 'number') {
-      return value.value;
+  private evaluateNode(node: ASTNode, context: ExecutionContext): ValueType {
+    // For now, just handle literals
+    if (node.type === NodeType.INTEGER_LITERAL) {
+      return (node as { value: number }).value;
     }
-    if (typeof value.value === 'string') {
-      return parseFloat(value.value);
+    if (node.type === NodeType.FLOAT_LITERAL) {
+      return (node as { value: number }).value;
     }
-    return 0;
+    if (node.type === NodeType.IDENTIFIER_EXPR) {
+      const name = (node as { name: string }).name;
+      const value = context.memory.get(name);
+      if (value === undefined) {
+        throw new Error(`Undefined variable: ${name}`);
+      }
+      return value;
+    }
+
+    throw new Error(`Cannot evaluate node type: ${node.type}`);
+  }
+
+  private toNumber(value: ValueType): number {
+    if (typeof value === 'number') {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const num = parseFloat(value);
+      if (isNaN(num)) {
+        throw new Error(`Cannot convert string to number: ${value}`);
+      }
+      return num;
+    }
+    if (typeof value === 'boolean') {
+      return value ? 1 : 0;
+    }
+    if (value === null) {
+      return 0;
+    }
+    throw new Error(`Cannot convert to number: ${typeof value}`);
   }
 }

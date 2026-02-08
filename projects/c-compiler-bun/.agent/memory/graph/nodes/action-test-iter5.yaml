@@ -1,0 +1,37 @@
+node:
+  id: action-test-iter5
+  name: 'Action: test'
+  kind: concept
+  description: 'Action: test | depth: depth:structure | context_nodes: [plan-m002, intent-deff7f09] | tokens: 533173in+26393out | 112.9s | FAIL'
+  tags:
+  - action-context
+  - test
+  meta:
+    roska_depth: depth:structure
+    completion_tokens: '26393'
+    duration_secs: '112.9'
+    prompt_tokens: '533173'
+    iteration: '5'
+    success: 'false'
+  weight: 0.5
+  conversation_count: 1
+  decision_count: 0
+  created_at: 1770579924
+  updated_at: 1770579924
+conversations:
+- id: k-1770579924-6
+  node_id: action-test-iter5
+  topic: 'Action: test | depth: depth:structure | context_nodes: [plan-m002, intent-deff7f09] | tokens: 533173in+26393out | 112.9s | FAIL'
+  messages:
+  - role: system
+    content: roska_depth=depth:structure estimated_tokens=5000 priority=0.70
+    timestamp: 1770579924
+  - role: agent
+    content: prompt_tokens=533173 completion_tokens=26393 duration_secs=112.9 success=false
+    timestamp: 1770579924
+  summary: null
+  outcomes: []
+  created_at: 1770579924
+  updated_at: 1770579924
+decisions: []
+specs: []

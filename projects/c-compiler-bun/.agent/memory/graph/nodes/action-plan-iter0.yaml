@@ -2,36 +2,36 @@ node:
   id: action-plan-iter0
   name: 'Action: plan'
   kind: concept
-  description: 'Action: plan | depth: depth:overview | context_nodes: [] | tokens: 26257in+5136out | 17.9s | FAIL'
+  description: 'Action: plan | depth: depth:overview | context_nodes: [] | tokens: 136090in+10538out | 31.5s | FAIL'
   tags:
   - action-context
   - plan
   meta:
-    roska_depth: depth:overview
-    completion_tokens: '5136'
+    prompt_tokens: '136090'
     success: 'false'
+    duration_secs: '31.5'
     iteration: '0'
-    duration_secs: '17.9'
-    prompt_tokens: '26257'
+    roska_depth: depth:overview
+    completion_tokens: '10538'
   weight: 0.5
   conversation_count: 1
   decision_count: 0
-  created_at: 1770573291
-  updated_at: 1770573291
+  created_at: 1770579375
+  updated_at: 1770579375
 conversations:
-- id: k-1770573291-1
+- id: k-1770579375-1
   node_id: action-plan-iter0
-  topic: 'Action: plan | depth: depth:overview | context_nodes: [] | tokens: 26257in+5136out | 17.9s | FAIL'
+  topic: 'Action: plan | depth: depth:overview | context_nodes: [] | tokens: 136090in+10538out | 31.5s | FAIL'
   messages:
   - role: system
     content: roska_depth=depth:overview estimated_tokens=2000 priority=1.00
-    timestamp: 1770573291
+    timestamp: 1770579375
   - role: agent
-    content: prompt_tokens=26257 completion_tokens=5136 duration_secs=17.9 success=false
-    timestamp: 1770573291
+    content: prompt_tokens=136090 completion_tokens=10538 duration_secs=31.5 success=false
+    timestamp: 1770579375
   summary: null
   outcomes: []
-  created_at: 1770573291
-  updated_at: 1770573291
+  created_at: 1770579375
+  updated_at: 1770579375
 decisions: []
 specs: []

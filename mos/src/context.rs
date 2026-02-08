@@ -12,6 +12,7 @@ use crate::plans::{Plan, PlanGraph, PlanKind};
 use crate::rules::{RuleSet, EvalContext};
 use crate::supervisor::{Action, ActionKind};
 use crate::scanner;
+use crate::util::estimate_tokens;
 use knowledge_graph::KnowledgeGraph;
 use roska_descriptor::Depth;
 use std::path::Path;
@@ -313,11 +314,6 @@ fn action_feature_id(action: &Action) -> Option<&str> {
         | ActionKind::Fix { feature_id, .. } => Some(feature_id.as_str()),
         _ => None,
     }
-}
-
-fn estimate_tokens(text: &str) -> u32 {
-    // ~4 chars per token (rough estimate)
-    (text.len() as u32) / 4
 }
 
 // ── Tests ──

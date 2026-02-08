@@ -7,6 +7,7 @@
 //! This gives the agent a deep understanding of how other projects
 //! work, enabling it to learn patterns, architectures, and conventions.
 
+use crate::util::sanitize_id;
 use knowledge_core::graph::{Edge, EdgeRelation, Node, NodeKind};
 use knowledge_graph::KnowledgeGraph;
 use roska_descriptor::Depth;
@@ -218,19 +219,6 @@ fn scan_reference(
         "roska could not parse project at {}",
         project_path.display()
     )))
-}
-
-fn sanitize_id(name: &str) -> String {
-    name.chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>()
-        .to_lowercase()
 }
 
 /// Errors that can occur during reference analysis.

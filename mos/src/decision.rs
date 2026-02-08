@@ -14,6 +14,7 @@
 
 use crate::supervisor::{Action, ActionKind, Gap, GapStatus, CompletedAction};
 use crate::rules::{Rule, EvalContext};
+use crate::util::extract_json;
 use roska_descriptor::Depth;
 use serde::{Deserialize, Serialize};
 
@@ -386,21 +387,6 @@ pub fn derive_actions_heuristic(gaps: &[Gap]) -> Vec<Action> {
 
     actions.sort_by(|a, b| b.priority.partial_cmp(&a.priority).unwrap_or(std::cmp::Ordering::Equal));
     actions
-}
-
-fn extract_json(response: &str) -> String {
-    if let Some(start) = response.find("```json") {
-        let after = &response[start + 7..];
-        if let Some(end) = after.find("```") {
-            return after[..end].trim().to_string();
-        }
-    }
-    if let Some(start) = response.find('{') {
-        if let Some(end) = response.rfind('}') {
-            return response[start..=end].to_string();
-        }
-    }
-    response.to_string()
 }
 
 // ── Tests ──

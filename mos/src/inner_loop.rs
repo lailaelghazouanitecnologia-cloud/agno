@@ -13,6 +13,7 @@
 
 use crate::config::MosConfig;
 use crate::scanner;
+use crate::util::sanitize_id;
 use knowledge_graph::KnowledgeGraph;
 use kkr_inner::{
     Artifact, InnerConfig, InnerLoop, Monologue, Phase, PhaseResult, Role,
@@ -290,19 +291,6 @@ pub fn inner_config_from_mos(cfg: &MosConfig) -> InnerConfig {
             reviewer: cfg.inner.roles.reviewer.clone(),
         },
     }
-}
-
-fn sanitize_id(name: &str) -> String {
-    name.chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>()
-        .to_lowercase()
 }
 
 #[cfg(test)]

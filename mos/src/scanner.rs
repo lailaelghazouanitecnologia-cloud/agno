@@ -10,6 +10,7 @@
 //! The scanner is the **Perception phase** of the inner loop:
 //! it observes what exists before the agent starts thinking.
 
+use crate::util::sanitize_id;
 use knowledge_core::graph::{Edge, EdgeRelation, Node, NodeKind};
 use knowledge_graph::KnowledgeGraph;
 use roska_descriptor::Depth;
@@ -506,24 +507,9 @@ fn walk_files_for_listing(
     }
 }
 
-/// Sanitize a name for use as a node ID.
-fn sanitize_id(name: &str) -> String {
-    name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
-        .collect::<String>()
-        .to_lowercase()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn sanitize_id_works() {
-        assert_eq!(sanitize_id("my-crate"), "my-crate");
-        assert_eq!(sanitize_id("My Crate!"), "my-crate-");
-        assert_eq!(sanitize_id("foo/bar"), "foo-bar");
-    }
 
     #[test]
     fn scan_nonexistent_returns_none() {

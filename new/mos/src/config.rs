@@ -59,6 +59,8 @@ pub struct AgentToml {
     pub runtime: RuntimeSection,
     #[serde(default)]
     pub knowledge: KnowledgeSection,
+    #[serde(default)]
+    pub inner: InnerSection,
 }
 
 impl Default for AgentToml {
@@ -69,6 +71,7 @@ impl Default for AgentToml {
             routing: RoutingSection::default(),
             runtime: RuntimeSection::default(),
             knowledge: KnowledgeSection::default(),
+            inner: InnerSection::default(),
         }
     }
 }
@@ -216,6 +219,75 @@ impl Default for KnowledgeSection {
     }
 }
 
+// ── [inner] ──
+
+/// Configuration for the internal monologue system.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InnerSection {
+    /// Maximum turns in the deliberation phase.
+    #[serde(default = "default_inner_turns")]
+    pub max_deliberation_turns: usize,
+    /// Whether to run the simulation phase (dry-run).
+    #[serde(default = "default_true_inner")]
+    pub simulation_enabled: bool,
+    /// Whether to run the reflection phase after execution.
+    #[serde(default = "default_true_inner")]
+    pub reflection_enabled: bool,
+    /// Maximum total tokens for internal monologues.
+    #[serde(default = "default_inner_budget")]
+    pub cost_budget_tokens: u64,
+    /// Role → model profile mappings.
+    #[serde(default)]
+    pub roles: InnerRolesSection,
+}
+
+fn default_inner_turns() -> usize { 6 }
+fn default_true_inner() -> bool { true }
+fn default_inner_budget() -> u64 { 50_000 }
+
+impl Default for InnerSection {
+    fn default() -> Self {
+        Self {
+            max_deliberation_turns: 6,
+            simulation_enabled: true,
+            reflection_enabled: true,
+            cost_budget_tokens: 50_000,
+            roles: InnerRolesSection::default(),
+        }
+    }
+}
+
+/// Maps each internal role to a model profile from [models.*].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InnerRolesSection {
+    #[serde(default = "default_inner_micro")]
+    pub analyst: String,
+    #[serde(default = "default_inner_architect")]
+    pub architect: String,
+    #[serde(default = "default_inner_architect")]
+    pub critic: String,
+    #[serde(default = "default_inner_coder")]
+    pub coder: String,
+    #[serde(default = "default_inner_micro")]
+    pub reviewer: String,
+}
+
+fn default_inner_micro() -> String { "micro".into() }
+fn default_inner_architect() -> String { "architect".into() }
+fn default_inner_coder() -> String { "coder".into() }
+
+impl Default for InnerRolesSection {
+    fn default() -> Self {
+        Self {
+            analyst: "micro".into(),
+            architect: "architect".into(),
+            critic: "architect".into(),
+            coder: "coder".into(),
+            reviewer: "micro".into(),
+        }
+    }
+}
+
 // ── Resolved config ──
 
 /// Fully resolved configuration.
@@ -224,6 +296,7 @@ pub struct MosConfig {
     pub agent_name: String,
     pub models: HashMap<String, ModelProfile>,
     pub routing: RoutingSection,
+    pub inner: InnerSection,
     pub max_iterations: usize,
     pub approval: String,
     pub auto_scan: bool,
@@ -255,6 +328,7 @@ impl MosConfig {
             agent_name: toml_cfg.agent.name,
             models: toml_cfg.models,
             routing: toml_cfg.routing,
+            inner: toml_cfg.inner,
             max_iterations: toml_cfg.runtime.max_iterations,
             approval: toml_cfg.runtime.approval,
             auto_scan: toml_cfg.knowledge.auto_scan,
@@ -449,6 +523,23 @@ approval = "safe_only"
 [knowledge]
 auto_scan = true
 max_context_nodes = 10
+
+# ── Inner Monologue ──
+# Internal deliberation before execution.
+# Roles cycle through: Analyst → Architect → Critic → Architect (revision)
+
+[inner]
+max_deliberation_turns = 6
+simulation_enabled = true
+reflection_enabled = true
+cost_budget_tokens = 50000
+
+[inner.roles]
+analyst = "micro"         # cheap model for observation
+architect = "architect"   # expensive model for design
+critic = "architect"      # expensive model for risk analysis
+coder = "coder"           # mid-tier for code generation
+reviewer = "micro"        # cheap model for reflection
 "#
     .to_string()
 }

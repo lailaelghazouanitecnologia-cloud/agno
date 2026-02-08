@@ -39,6 +39,8 @@ members = [
     "crates/project",
     "crates/coordinator",
     "crates/refactor",
+    # Internal monologue engine
+    "crates/inner",
     # VM + Plan
     "crates/vm",
     "crates/plan",
@@ -106,6 +108,7 @@ kkr-errordb = { path = "crates/errordb" }
 kkr-project = { path = "crates/project" }
 kkr-coordinator = { path = "crates/coordinator" }
 kkr-refactor = { path = "crates/refactor" }
+kkr-inner = { path = "crates/inner" }
 kkr-vm = { path = "crates/vm" }
 kkr-plan = { path = "crates/plan" }
 kkr-tool-fs = { path = "crates/tools/fs" }

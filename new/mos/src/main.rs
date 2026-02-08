@@ -11,7 +11,10 @@
 //! - **errordb** tracks recurring errors + loop detection
 
 mod config;
+mod inner_loop;
+mod reference;
 mod routing;
+mod scanner;
 
 use config::{CliOverrides, MosConfig, ModelProfile};
 use routing::Router;
@@ -72,6 +75,8 @@ fn print_usage() {
     eprintln!("  mos init                Initialize .agent/ directory");
     eprintln!("  mos graph               Show knowledge graph summary");
     eprintln!("  mos models              Show configured model profiles");
+    eprintln!("  mos scan                Scan project with roska (perception)");
+    eprintln!("  mos reference <source>  Analyze an external project");
     eprintln!();
     eprintln!("Options:");
     eprintln!("  --model <name>          Override default model");
@@ -86,6 +91,8 @@ enum Command {
     Init,
     Graph,
     Models,
+    Scan,
+    Reference { source: String },
     Run {
         task: String,
         overrides: CliOverrides,
@@ -104,6 +111,16 @@ fn parse_args() -> Option<Command> {
         "init" => return Some(Command::Init),
         "graph" => return Some(Command::Graph),
         "models" => return Some(Command::Models),
+        "scan" => return Some(Command::Scan),
+        "reference" | "ref" => {
+            let source = args.get(1).cloned().unwrap_or_default();
+            if source.is_empty() {
+                eprintln!("error: mos reference <source>");
+                eprintln!("  source: local path, git URL, or github shorthand (user/repo)");
+                return None;
+            }
+            return Some(Command::Reference { source });
+        }
         _ => {}
     }
 
@@ -302,6 +319,65 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             print_models(&cfg);
         }
 
+        Command::Scan => {
+            let workspace =
+                std::fs::canonicalize(".").unwrap_or_else(|_| PathBuf::from("."));
+            let cfg = MosConfig::load(&workspace);
+            let mut graph = load_graph(&cfg);
+
+            eprintln!("\x1b[1;36mmos\x1b[0m | scanning with roska...");
+
+            match scanner::scan_into_graph(&workspace, &mut graph) {
+                Some(scan) => {
+                    eprintln!(
+                        "\x1b[1;36mmos\x1b[0m | found {} crates, {} files ({})",
+                        scan.crate_count,
+                        scan.file_count,
+                        if scan.is_workspace { "workspace" } else { "single crate" }
+                    );
+                    eprintln!(
+                        "\x1b[1;35mknowledge\x1b[0m | graph now has {} nodes",
+                        graph.node_count()
+                    );
+                    println!("\n{}", scan.overview);
+                    save_graph(&cfg, &graph);
+                }
+                None => {
+                    eprintln!("\x1b[33mmos\x1b[0m | no Rust project found (or empty project)");
+                    eprintln!("\x1b[33mmos\x1b[0m | that's fine — you can start from scratch");
+                }
+            }
+        }
+
+        Command::Reference { source } => {
+            let workspace =
+                std::fs::canonicalize(".").unwrap_or_else(|_| PathBuf::from("."));
+            let cfg = MosConfig::load(&workspace);
+            let mut graph = load_graph(&cfg);
+
+            eprintln!("\x1b[1;36mmos\x1b[0m | analyzing reference: {}", source);
+
+            match reference::analyze_reference(&source, &mut graph) {
+                Ok(analysis) => {
+                    eprintln!(
+                        "\x1b[1;32mmos\x1b[0m | analyzed '{}': {} modules, {} files",
+                        analysis.name, analysis.module_count, analysis.file_count
+                    );
+                    eprintln!(
+                        "\x1b[1;35mknowledge\x1b[0m | added node '{}' to graph ({} total nodes)",
+                        analysis.node_id,
+                        graph.node_count()
+                    );
+                    println!("\n{}", analysis.overview);
+                    save_graph(&cfg, &graph);
+                }
+                Err(e) => {
+                    eprintln!("\x1b[31mmos error:\x1b[0m {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
         Command::Run { task, overrides } => {
             let workspace_path = std::fs::canonicalize(&overrides.workspace)
                 .unwrap_or_else(|_| overrides.workspace.clone());
@@ -324,7 +400,21 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             let _router = Router::new(&cfg);
 
             // Load knowledge graph
-            let graph = load_graph(&cfg);
+            let mut graph = load_graph(&cfg);
+
+            // Run perception phase (roska scan → knowledge graph)
+            if cfg.auto_scan {
+                let inner_cfg = inner_loop::inner_config_from_mos(&cfg);
+                let mut mos_inner = inner_loop::MosInnerLoop::new(&task, inner_cfg);
+                let perception = mos_inner.run_perception(&workspace_path, &mut graph);
+                if !perception.summary.contains("Starting from scratch") {
+                    eprintln!(
+                        "\x1b[1;35mperception\x1b[0m | {}",
+                        perception.summary
+                    );
+                }
+            }
+
             let graph_context = graph.render_map();
 
             // Select the planning model for the initial run

@@ -264,6 +264,7 @@ mod tests {
             auto_scan: true,
             max_context_nodes: 10,
             workspace: std::path::PathBuf::from("."),
+            inner: crate::config::InnerSection::default(),
         }
     }
 

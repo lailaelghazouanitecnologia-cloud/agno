@@ -65,6 +65,8 @@ pub enum NodeKind {
     Feature,
     /// A bug or issue
     Issue,
+    /// An external reference project (e.g., "codex-cli", "figma")
+    Reference,
 }
 
 impl Node {

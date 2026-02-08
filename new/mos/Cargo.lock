@@ -885,6 +885,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "kkr-inner"
+version = "0.1.0"
+dependencies = [
+ "kkr-core",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
 name = "kkr-provider-openai"
 version = "0.1.0"
 dependencies = [
@@ -1048,6 +1059,7 @@ dependencies = [
  "camino",
  "common-error",
  "kkr-core",
+ "kkr-inner",
  "kkr-provider-openai",
  "kkr-tool-fs",
  "kkr-tool-git",
@@ -1056,6 +1068,9 @@ dependencies = [
  "knowledge-core",
  "knowledge-graph",
  "knowledge-persist",
+ "roska-descriptor",
+ "roska-generator",
+ "roska-processor",
  "serde",
  "serde_json",
  "tokio",
@@ -1430,6 +1445,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "roska-descriptor"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror",
+]
+
+[[package]]
+name = "roska-generator"
+version = "0.1.0"
+dependencies = [
+ "roska-descriptor",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tree-sitter",
+ "tree-sitter-rust",
+]
+
+[[package]]
+name = "roska-processor"
+version = "0.1.0"
+dependencies = [
+ "roska-descriptor",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror",
+]
+
+[[package]]
 name = "rustix"
 version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1666,6 +1714,12 @@ name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
+
+[[package]]
+name = "streaming-iterator"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b2231b7c3057d5e4ad0156fb3dc807d900806020c5ffa3ee6ff2c8c76fb8520"
 
 [[package]]
 name = "strsim"
@@ -1970,6 +2024,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
+]
+
+[[package]]
+name = "tree-sitter"
+version = "0.24.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5387dffa7ffc7d2dae12b50c6f7aab8ff79d6210147c6613561fc3d474c6f75"
+dependencies = [
+ "cc",
+ "regex",
+ "regex-syntax",
+ "streaming-iterator",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-language"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
+
+[[package]]
+name = "tree-sitter-rust"
+version = "0.23.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca8ccb3e3a3495c8a943f6c3fd24c3804c471fd7f4f16087623c7fa4c0068e8a"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
 ]
 
 [[package]]

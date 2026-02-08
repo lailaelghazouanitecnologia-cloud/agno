@@ -19,6 +19,14 @@ kkr-tool-shell = { path = "../kkr/crates/tools/shell" }
 kkr-tool-git = { path = "../kkr/crates/tools/git" }
 kkr-tool-search = { path = "../kkr/crates/tools/search" }
 
+# KKR — internal monologue engine
+kkr-inner = { path = "../kkr/crates/inner" }
+
+# Roska — code analysis at depth levels
+roska-descriptor = { path = "../roska/crates/descriptor" }
+roska-generator = { path = "../roska/crates/generator" }
+roska-processor = { path = "../roska/crates/processor" }
+
 # Knowledge — graph + persistence
 knowledge-core = { path = "../knowledge/crates/knowledge-core" }
 knowledge-graph = { path = "../knowledge/crates/knowledge-graph" }

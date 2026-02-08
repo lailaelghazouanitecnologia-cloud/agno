@@ -1,0 +1,6 @@
+{"data":{"graph_nodes":0,"max_iterations":30,"model":"gpt-4o","task":"Build a TypeScript to JavaScript transpiler","workspace":"/home/user/agno/mos"},"event":"run_start","run":"c6225ebd","ts":1770566954}
+{"data":{"phase":"perception","summary":"0 nodes in graph"},"event":"phase","run":"c6225ebd","ts":1770566954}
+{"data":{"phase":"deliberation","summary":"Analyst role active"},"event":"phase","run":"c6225ebd","ts":1770566954}
+{"data":{"phase":"execution","summary":"agent_loop_start"},"event":"phase","run":"c6225ebd","ts":1770566954}
+{"data":{"phase":"reflection","summary":"Task had issues. error: [Provider] openai: API error (401 Unauthorized): {\n    \"error\": {\n        \"message\": \"Incorrect API key provided: 84SaJ3DN*****************************U7Bp. You can find your API key at https://platform.openai.com/account/api-keys.\",\n        \"type\": \"invalid_request_error\",\n        \"param\": null,\n        \"code\": \"invalid_api_key\"\n    }\n}\n"},"event":"phase","run":"c6225ebd","ts":1770566984}
+{"data":{"completion":0,"prompt":0,"total":0},"event":"tokens","run":"c6225ebd","ts":1770566984}

@@ -1,0 +1,6 @@
+# Session-specific (don't commit)
+sessions/
+logs/
+
+# Optional — commit for shared knowledge
+# memory/

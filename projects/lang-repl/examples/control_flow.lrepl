@@ -1,0 +1,36 @@
+// Control flow examples
+print("=== If/Else ===");
+
+let score = 85;
+if (score >= 90) {
+    print("Grade: A");
+} else if (score >= 80) {
+    print("Grade: B");
+} else if (score >= 70) {
+    print("Grade: C");
+} else {
+    print("Grade: F");
+}
+
+print("\n=== While Loop ===");
+
+let count = 5;
+while (count > 0) {
+    print("Countdown: " + str(count));
+    count = count - 1;
+}
+print("Liftoff!");
+
+print("\n=== For Loop ===");
+
+for (let i = 0; i < 5; i = i + 1) {
+    print("Iteration: " + str(i));
+}
+
+print("\n=== Nested Loops ===");
+
+for (let i = 1; i <= 3; i = i + 1) {
+    for (let j = 1; j <= 3; j = j + 1) {
+        print(str(i) + " x " + str(j) + " = " + str(i * j));
+    }
+}

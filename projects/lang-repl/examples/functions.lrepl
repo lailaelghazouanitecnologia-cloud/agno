@@ -1,0 +1,59 @@
+// Functions and closures example
+
+// Simple function
+fn greet(name) {
+    return "Hello, " + name + "!";
+}
+
+print(greet("World"));
+
+// Function with multiple parameters
+fn add(a, b) {
+    return a + b;
+}
+
+fn multiply(a, b) {
+    return a * b;
+}
+
+print("5 + 3 = " + str(add(5, 3)));
+print("4 * 7 = " + str(multiply(4, 7)));
+
+// Higher-order function
+fn apply_twice(f, x) {
+    return f(f(x));
+}
+
+fn double(n) {
+    return n * 2;
+}
+
+print("Double twice: " + str(apply_twice(double, 5)));
+
+// Closure example
+fn make_counter() {
+    let count = 0;
+    fn counter() {
+        count = count + 1;
+        return count;
+    }
+    return counter;
+}
+
+let c1 = make_counter();
+let c2 = make_counter();
+
+print("Counter 1: " + str(c1()));
+print("Counter 1: " + str(c1()));
+print("Counter 2: " + str(c2()));
+print("Counter 1: " + str(c1()));
+
+// Recursive function
+fn power(base, exp) {
+    if (exp == 0) {
+        return 1;
+    }
+    return base * power(base, exp - 1);
+}
+
+print("2^10 = " + str(power(2, 10)));

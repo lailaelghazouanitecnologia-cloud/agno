@@ -1,0 +1,28 @@
+// Array operations example
+let numbers = [1, 2, 3, 4, 5];
+
+print("Array: " + str(numbers));
+print("Length: " + str(len(numbers)));
+print("First element: " + str(numbers[0]));
+print("Last element: " + str(numbers[4]));
+
+// Sum of array
+let sum = 0;
+for (let i = 0; i < len(numbers); i = i + 1) {
+    sum = sum + numbers[i];
+}
+print("Sum: " + str(sum));
+
+// Find maximum
+let max = numbers[0];
+for (let i = 1; i < len(numbers); i = i + 1) {
+    if (numbers[i] > max) {
+        max = numbers[i];
+    }
+}
+print("Maximum: " + str(max));
+
+// Array concatenation
+let more = [6, 7, 8];
+let combined = numbers + more;
+print("Combined: " + str(combined));

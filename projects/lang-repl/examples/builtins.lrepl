@@ -1,0 +1,44 @@
+// Built-in functions demo
+
+print("=== Print Function ===");
+print("Hello from LangRePL!");
+
+print("\n=== Clock Function ===");
+let start = clock();
+print("Start time: " + str(start));
+// Do some work
+let sum = 0;
+for (let i = 0; i < 10000; i = i + 1) {
+    sum = sum + i;
+}
+let end = clock();
+print("End time: " + str(end));
+print("Elapsed: " + str(end - start) + " seconds");
+
+print("\n=== Length Function ===");
+let text = "Hello, World!";
+print("String: " + text);
+print("Length: " + str(len(text)));
+
+let arr = [1, 2, 3, 4, 5];
+print("Array: " + str(arr));
+print("Length: " + str(len(arr)));
+
+print("\n=== Type Function ===");
+print("Type of 42: " + type(42));
+print("Type of 3.14: " + type(3.14));
+print("Type of 'hello': " + type("hello"));
+print("Type of true: " + type(true));
+print("Type of nil: " + type(nil));
+print("Type of [1,2,3]: " + type([1, 2, 3]));
+
+print("\n=== String Conversion ===");
+print("str(123) = " + str(123));
+print("str(3.14) = " + str(3.14));
+print("str(true) = " + str(true));
+print("str(nil) = " + str(nil));
+
+print("\n=== Number Conversion ===");
+print("number('42') = " + str(number("42")));
+print("number('3.14') = " + str(number("3.14")));
+print("number('hello') = " + str(number("hello")));

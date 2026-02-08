@@ -1,0 +1,71 @@
+# mos agent configuration
+
+[agent]
+name = "mos"
+version = "0.1.0"
+
+# ── Model profiles ──
+# All models point to Baseten GLM-4.7
+
+[models.architect]
+provider = "openai"
+model = "zai-org/GLM-4.7"
+base_url = "https://inference.baseten.co/v1"
+temperature = 0.3
+max_tokens = 4096
+
+[models.coder]
+provider = "openai"
+model = "zai-org/GLM-4.7"
+base_url = "https://inference.baseten.co/v1"
+temperature = 0.2
+max_tokens = 4096
+
+[models.micro]
+provider = "openai"
+model = "zai-org/GLM-4.7"
+base_url = "https://inference.baseten.co/v1"
+temperature = 0.4
+max_tokens = 2048
+
+[models.leaf]
+provider = "openai"
+model = "zai-org/GLM-4.7"
+base_url = "https://inference.baseten.co/v1"
+temperature = 0.2
+max_tokens = 2048
+
+# ── Routing ──
+[routing]
+depth_0 = "architect"
+depth_1 = "architect"
+depth_2 = "coder"
+depth_3 = "leaf"
+knowledge = "micro"
+planning = "architect"
+max_consecutive_errors = 3
+escalate_on_loop = true
+
+# ── Runtime ──
+[runtime]
+max_iterations = 50
+approval = "autonomous"
+
+# ── Knowledge ──
+[knowledge]
+auto_scan = true
+max_context_nodes = 10
+
+# ── Inner Monologue ──
+[inner]
+max_deliberation_turns = 6
+simulation_enabled = true
+reflection_enabled = true
+cost_budget_tokens = 50000
+
+[inner.roles]
+analyst = "micro"
+architect = "architect"
+critic = "architect"
+coder = "coder"
+reviewer = "micro"

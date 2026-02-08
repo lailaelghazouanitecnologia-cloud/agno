@@ -1,0 +1,16 @@
+// Hello World example
+print("Hello, World!");
+
+// Variables
+let name = "LangRePL";
+print("Welcome to " + name + "!");
+
+// Numbers
+let x = 42;
+let y = 3.14;
+print("x = " + str(x));
+print("y = " + str(y));
+
+// Boolean
+let is_fun = true;
+print("Is programming fun? " + str(is_fun));

@@ -4,6 +4,9 @@
 //! - `Entry`: a piece of knowledge (fact, learning, observation)
 //! - `Query`: how to search knowledge
 //! - `Store`: trait for knowledge backends
+//! - `graph`: Knowledge Graph types (Node, Edge, Conversation, Decision, Spec)
+
+pub mod graph;
 
 use common_error::Result;
 use serde::{Deserialize, Serialize};
@@ -258,14 +261,14 @@ impl Store for InMemoryStore {
 
 // ── Helpers ──
 
-fn now_unix() -> u64 {
+pub fn now_unix() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
 }
 
-fn gen_id() -> String {
+pub fn gen_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(1);
     let ts = now_unix();

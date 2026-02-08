@@ -1,0 +1,11 @@
+[package]
+name = "knowledge-graph"
+version.workspace = true
+edition.workspace = true
+description = "Knowledge Graph: accumulated project understanding through nodes, edges, conversations"
+
+[dependencies]
+knowledge-core = { workspace = true }
+common-error = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

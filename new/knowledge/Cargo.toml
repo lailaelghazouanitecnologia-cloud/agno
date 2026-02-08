@@ -4,6 +4,8 @@ members = [
     "crates/knowledge-core",
     "crates/knowledge-memory",
     "crates/knowledge-project",
+    "crates/knowledge-graph",
+    "crates/knowledge-persist",
 ]
 
 [workspace.package]
@@ -13,6 +15,8 @@ edition = "2021"
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
+toml = "0.8"
 tokio = { version = "1.35", features = ["full"] }
 async-trait = "0.1"
 
@@ -29,3 +33,5 @@ roska-processor = { path = "../roska/crates/processor" }
 knowledge-core = { path = "crates/knowledge-core" }
 knowledge-memory = { path = "crates/knowledge-memory" }
 knowledge-project = { path = "crates/knowledge-project" }
+knowledge-graph = { path = "crates/knowledge-graph" }
+knowledge-persist = { path = "crates/knowledge-persist" }

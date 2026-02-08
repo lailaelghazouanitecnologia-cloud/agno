@@ -1,0 +1,14 @@
+[package]
+name = "knowledge-persist"
+version.workspace = true
+edition.workspace = true
+description = "Persistence layer for the Knowledge Graph: YAML/TOML to .agent/memory/"
+
+[dependencies]
+knowledge-core = { workspace = true }
+knowledge-graph = { workspace = true }
+common-error = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+toml = { workspace = true }

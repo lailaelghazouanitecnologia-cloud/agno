@@ -854,6 +854,91 @@ pub fn is_plan_complete(graph: &KnowledgeGraph, plan_features: &[String]) -> boo
     gaps.iter().all(|g| g.status == GapStatus::Verified)
 }
 
+/// Fallback: create features from files that already exist in the workspace.
+/// Used when the Plan action didn't produce parseable JSON but the model
+/// wrote source files anyway.
+pub fn create_features_from_files(
+    task: &str,
+    files: &[String],
+    graph: &mut KnowledgeGraph,
+) -> Vec<String> {
+    if files.is_empty() {
+        return Vec::new();
+    }
+
+    // Create intent node
+    let intent_id = format!("intent-{}", &uuid::Uuid::new_v4().to_string()[..8]);
+    let intent_node = Node::new(&intent_id, task, NodeKind::Concept)
+        .with_tag("intent")
+        .with_tag("plan-root")
+        .with_weight(1.0)
+        .with_description(format!("User request: {}", task));
+    let _ = graph.add_node(intent_node);
+
+    // Group files by directory to infer modules
+    let mut groups: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for file in files {
+        let path = std::path::Path::new(file);
+        let group = path
+            .parent()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "root".to_string());
+
+        let is_test = file.contains("test") || file.contains("spec");
+        if !is_test {
+            groups.entry(group).or_default().push(file.clone());
+        }
+    }
+
+    let mut feature_ids = Vec::new();
+
+    if groups.len() <= 1 && files.len() <= 5 {
+        let feature_id = "plan-project".to_string();
+        let files_csv: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
+        let node = Node::new(&feature_id, task, NodeKind::Feature)
+            .with_tag("plan")
+            .with_meta("files", &files_csv.join(","))
+            .with_description(format!("Full project: {} files", files.len()));
+        let _ = graph.add_node(node);
+        let _ = graph.add_edge(Edge::new(&intent_id, &feature_id, EdgeRelation::Parent));
+        feature_ids.push(feature_id);
+    } else {
+        for (group_name, group_files) in &groups {
+            let feature_id = format!("plan-{}", sanitize_id(group_name));
+            let files_csv: Vec<&str> = group_files.iter().map(|s| s.as_str()).collect();
+            let node = Node::new(&feature_id, group_name, NodeKind::Feature)
+                .with_tag("plan")
+                .with_meta("files", &files_csv.join(","))
+                .with_description(format!("{}: {} files", group_name, group_files.len()));
+            let _ = graph.add_node(node);
+            let _ = graph.add_edge(Edge::new(&intent_id, &feature_id, EdgeRelation::Parent));
+            feature_ids.push(feature_id);
+        }
+    }
+
+    // Add test feature for test files
+    let test_files: Vec<&String> = files
+        .iter()
+        .filter(|f| f.contains("test") || f.contains("spec"))
+        .collect();
+    if !test_files.is_empty() {
+        let test_feature_id = "plan-tests".to_string();
+        let tf_csv: Vec<&str> = test_files.iter().map(|s| s.as_str()).collect();
+        let node = Node::new(&test_feature_id, "Tests", NodeKind::Feature)
+            .with_tag("plan")
+            .with_tag("test")
+            .with_meta("files", &tf_csv.join(","))
+            .with_description(format!("Test suite: {} test files", test_files.len()));
+        let _ = graph.add_node(node);
+        let _ = graph.add_edge(Edge::new(&intent_id, &test_feature_id, EdgeRelation::Parent));
+        feature_ids.push(test_feature_id);
+    }
+
+    feature_ids
+}
+
 /// Find existing plan features in the graph (for resuming).
 pub fn find_plan_features(graph: &KnowledgeGraph) -> Vec<String> {
     let query = NodeQuery::new().kind(NodeKind::Feature).tag("plan");

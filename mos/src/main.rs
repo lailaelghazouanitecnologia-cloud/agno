@@ -757,7 +757,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
             let sup_config = supervisor::SupervisorConfig {
                 max_iterations: overrides.max_iterations.unwrap_or(20) as u32,
-                agent_max_iter: 15,
+                agent_max_iter: 25,
                 token_budget: 2_000_000,
             };
 
@@ -808,6 +808,12 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             };
 
             let mut total_tokens: u64 = request.total_tokens;
+            let mut plan_attempts: u32 = 0;
+            const MAX_PLAN_ATTEMPTS: u32 = 2;
+            // Track consecutive failures per feature to avoid getting stuck
+            let mut feature_fail_counts: std::collections::HashMap<String, u32> =
+                std::collections::HashMap::new();
+            const MAX_FEATURE_RETRIES: u32 = 2;
 
             // ── Supervisor Loop ──
             for iteration in 0..sup_config.max_iterations {
@@ -849,8 +855,48 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     }
                 }
 
-                // Take highest priority action
-                let action = &actions[0];
+                // Select action: skip features that have exceeded retry limit
+                let action = actions.iter().find(|a| {
+                    let fid = match &a.kind {
+                        supervisor::ActionKind::Fix { ref feature_id, .. } => Some(feature_id.as_str()),
+                        _ => None,
+                    };
+                    match fid {
+                        Some(id) => feature_fail_counts.get(id).copied().unwrap_or(0) < MAX_FEATURE_RETRIES,
+                        None => true,
+                    }
+                }).unwrap_or(&actions[0]).clone();
+
+                // Guard against infinite plan retries
+                if matches!(action.kind, supervisor::ActionKind::Plan) {
+                    plan_attempts += 1;
+                    if plan_attempts > MAX_PLAN_ATTEMPTS {
+                        eprintln!("\x1b[33mplan\x1b[0m | max plan attempts reached, checking workspace files...");
+                        let src_files = list_source_files(&workspace_root);
+                        if !src_files.is_empty() {
+                            let fallback = supervisor::create_features_from_files(
+                                &task, &src_files, &mut graph,
+                            );
+                            if !fallback.is_empty() {
+                                plan_features = fallback;
+                                request.plan_features = plan_features.clone();
+                                for fid in &plan_features {
+                                    supervisor::mark_feature_implemented(&mut graph, fid);
+                                }
+                                eprintln!(
+                                    "\x1b[1;35mplan\x1b[0m | created {} features from {} workspace files",
+                                    plan_features.len(), src_files.len()
+                                );
+                                continue; // re-analyze with the new features
+                            }
+                        }
+                        eprintln!("\x1b[31mplan\x1b[0m | no files found either, giving up on planning");
+                        request.status = supervisor::RequestStatus::Failed("Could not create plan".to_string());
+                        supervisor::save_request(&workspace_root, &request);
+                        break;
+                    }
+                }
+
                 eprintln!(
                     "\x1b[1;35maction\x1b[0m | {} (priority: {:.2}, depth: {}, ~{} tokens)",
                     action.kind.label(),
@@ -878,17 +924,32 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
                 // Compose prompt dynamically from graph context
                 let action_prompt = supervisor::compose_prompt(
-                    action,
+                    &action,
                     &task,
                     &graph,
                     &roska_context,
                 );
 
-                let agent_instructions = format!(
-                    "{}\n\n## System\nYou are mos, an autonomous coding agent. You BUILD software.\n\
-                     You MUST use write_file to create files. Do NOT just describe what to do.",
-                    action_prompt
-                );
+                // Different system instructions for different action types
+                let agent_instructions = match &action.kind {
+                    supervisor::ActionKind::Plan => format!(
+                        "{}\n\n## System\nYou are mos, a planning agent. Your job is to ANALYZE the task \
+                         and output a structured JSON plan. Do NOT write source code files yet — \
+                         only output the JSON feature decomposition as instructed above.",
+                        action_prompt
+                    ),
+                    supervisor::ActionKind::Verify => format!(
+                        "{}\n\n## System\nYou are mos, a verification agent. Run tests, check results, \
+                         and output a JSON verification summary.",
+                        action_prompt
+                    ),
+                    _ => format!(
+                        "{}\n\n## System\nYou are mos, an autonomous coding agent. You BUILD software.\n\
+                         You MUST use write_file to create files. Do NOT just describe what to do.\n\
+                         Keep working until this action is complete.",
+                        action_prompt
+                    ),
+                };
 
                 // Build and run the agent
                 let provider = build_provider(model_profile, &api_key);
@@ -965,7 +1026,29 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                             plan_features = features;
                             request.plan_features = plan_features.clone();
                         } else {
-                            eprintln!("\x1b[33mplan\x1b[0m | failed to parse plan from model response");
+                            eprintln!("\x1b[33mplan\x1b[0m | no JSON plan parsed, checking workspace for files...");
+                            // Fallback: if model wrote files instead of producing a plan,
+                            // create a single feature from existing workspace files
+                            let src_files = list_source_files(&workspace_root);
+                            if !src_files.is_empty() {
+                                eprintln!(
+                                    "\x1b[1;35mplan\x1b[0m | found {} source files, creating feature from workspace",
+                                    src_files.len()
+                                );
+                                let fallback_features = supervisor::create_features_from_files(
+                                    &task,
+                                    &src_files,
+                                    &mut graph,
+                                );
+                                if !fallback_features.is_empty() {
+                                    plan_features = fallback_features;
+                                    request.plan_features = plan_features.clone();
+                                    // Mark features as implemented since files already exist
+                                    for fid in &plan_features {
+                                        supervisor::mark_feature_implemented(&mut graph, fid);
+                                    }
+                                }
+                            }
                         }
                     }
                     supervisor::ActionKind::Implement { ref feature_id, .. } => {
@@ -988,9 +1071,17 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     supervisor::ActionKind::Fix { ref feature_id, .. } => {
                         if success {
                             supervisor::mark_feature_tested(&mut graph, feature_id, true);
+                            feature_fail_counts.remove(feature_id);
                             eprintln!(
                                 "\x1b[1;32mfeature\x1b[0m | {} → verified (fix applied)",
                                 feature_id
+                            );
+                        } else {
+                            let count = feature_fail_counts.entry(feature_id.clone()).or_insert(0);
+                            *count += 1;
+                            eprintln!(
+                                "\x1b[33mfix\x1b[0m | {} failed ({}/{} retries)",
+                                feature_id, count, MAX_FEATURE_RETRIES
                             );
                         }
                     }
@@ -1058,6 +1149,52 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+/// List source files in a workspace (for fallback plan creation).
+fn list_source_files(workspace: &std::path::Path) -> Vec<String> {
+    let mut files = Vec::new();
+    let src_dir = workspace.join("src");
+    if src_dir.exists() {
+        walk_source_files(&src_dir, &mut files);
+    }
+    // Also check root-level source files
+    if let Ok(entries) = std::fs::read_dir(workspace) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension() {
+                    let ext = ext.to_string_lossy().to_lowercase();
+                    if matches!(ext.as_str(), "ts" | "js" | "py" | "rs" | "go" | "c" | "cpp" | "java") {
+                        files.push(path.display().to_string());
+                    }
+                }
+            }
+        }
+    }
+    files
+}
+
+fn walk_source_files(dir: &std::path::Path, files: &mut Vec<String>) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                // Skip node_modules and hidden dirs
+                let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                if !name.starts_with('.') && name != "node_modules" {
+                    walk_source_files(&path, files);
+                }
+            } else if path.is_file() {
+                if let Some(ext) = path.extension() {
+                    let ext = ext.to_string_lossy().to_lowercase();
+                    if matches!(ext.as_str(), "ts" | "js" | "py" | "rs" | "go" | "c" | "cpp" | "java") {
+                        files.push(path.display().to_string());
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn handle_event(event: AgentEvent) {

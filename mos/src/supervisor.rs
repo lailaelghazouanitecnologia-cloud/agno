@@ -162,8 +162,18 @@ pub struct CompletedAction {
     pub feature_id: Option<String>,
     pub iteration: u32,
     pub tokens_used: u64,
+    /// Input (prompt) tokens — cost is typically lower per token.
+    pub prompt_tokens: u32,
+    /// Output (completion) tokens — cost is typically higher per token.
+    pub completion_tokens: u32,
+    /// Wall-clock duration in seconds for this action.
+    pub duration_secs: f64,
     pub success: bool,
     pub summary: String,
+    /// Which graph nodes were injected as context for this action.
+    pub context_node_ids: Vec<String>,
+    /// Roska depth used for this action.
+    pub roska_depth: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -943,6 +953,159 @@ pub fn create_features_from_files(
 pub fn find_plan_features(graph: &KnowledgeGraph) -> Vec<String> {
     let query = NodeQuery::new().kind(NodeKind::Feature).tag("plan");
     graph.find_nodes(&query).iter().map(|n| n.id.clone()).collect()
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Adaptive Iterations — different limits per action type
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Return a tuned max_iter for each action type.
+/// Plan actions are cheap (just output JSON), Fix actions are expensive (read + write + test).
+pub fn adaptive_max_iter(action: &ActionKind, base: u32) -> u32 {
+    match action {
+        ActionKind::Plan => 5.min(base),          // Plan should just output JSON
+        ActionKind::Scan { .. } => 3.min(base),   // Scan is a quick read
+        ActionKind::Scaffold => 10.min(base),     // Scaffold creates a few files
+        ActionKind::Test { .. } => 15.min(base),  // Test writes + runs tests
+        ActionKind::Implement { .. } => base,     // Full budget for implementation
+        ActionKind::Fix { .. } => 20.min(base),   // Fix: read, diagnose, write, test
+        ActionKind::Integrate => 15.min(base),    // Wire modules together
+        ActionKind::Verify => 10.min(base),       // Run tests + produce summary
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Context Tagging — record what was injected into each agent call
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Record a Conversation node in the graph capturing the context injected
+/// into an agent call. This lets us analyze what the agent "saw" at each step.
+pub fn record_action_context(
+    graph: &mut KnowledgeGraph,
+    action: &Action,
+    iteration: u32,
+    prompt_tokens: u32,
+    completion_tokens: u32,
+    duration_secs: f64,
+    success: bool,
+) {
+    let conv_id = format!(
+        "action-{}-iter{}",
+        action.kind.label(),
+        iteration
+    );
+
+    let context_desc = format!(
+        "Action: {} | depth: {} | context_nodes: [{}] | tokens: {}in+{}out | {:.1}s | {}",
+        action.kind.label(),
+        action.roska_depth,
+        action.context_nodes.join(", "),
+        prompt_tokens,
+        completion_tokens,
+        duration_secs,
+        if success { "OK" } else { "FAIL" },
+    );
+
+    let mut conv = Conversation::new(&conv_id, &context_desc);
+    conv.add_message(MessageRole::System, format!(
+        "roska_depth={} estimated_tokens={} priority={:.2}",
+        action.roska_depth, action.estimated_tokens, action.priority
+    ));
+    conv.add_message(MessageRole::Agent, format!(
+        "prompt_tokens={} completion_tokens={} duration_secs={:.1} success={}",
+        prompt_tokens, completion_tokens, duration_secs, success
+    ));
+
+    // Tag with action metadata
+    let node = Node::new(&conv_id, &format!("Action: {}", action.kind.label()), NodeKind::Concept)
+        .with_tag("action-context")
+        .with_tag(action.kind.label())
+        .with_meta("iteration", &iteration.to_string())
+        .with_meta("prompt_tokens", &prompt_tokens.to_string())
+        .with_meta("completion_tokens", &completion_tokens.to_string())
+        .with_meta("duration_secs", &format!("{:.1}", duration_secs))
+        .with_meta("roska_depth", &format!("{}", action.roska_depth))
+        .with_meta("success", &success.to_string())
+        .with_description(context_desc);
+
+    let _ = graph.add_node(node);
+    let _ = graph.add_conversation(conv);
+
+    // Link to each context node that was injected
+    for ctx_id in &action.context_nodes {
+        if graph.get_node(ctx_id).is_some() {
+            let _ = graph.add_edge(Edge::new(&conv_id, ctx_id, EdgeRelation::Related));
+        }
+    }
+}
+
+/// Render a performance summary from completed actions — identifies slow steps.
+pub fn render_performance_summary(actions: &[CompletedAction]) -> String {
+    if actions.is_empty() {
+        return "No actions completed.".to_string();
+    }
+
+    let mut out = String::new();
+    let total_prompt: u64 = actions.iter().map(|a| a.prompt_tokens as u64).sum();
+    let total_completion: u64 = actions.iter().map(|a| a.completion_tokens as u64).sum();
+    let total_duration: f64 = actions.iter().map(|a| a.duration_secs).sum();
+
+    out.push_str(&format!(
+        "Performance: {} actions, {:.0}s total, {}in+{}out tokens\n",
+        actions.len(), total_duration, total_prompt, total_completion
+    ));
+
+    // Sort by duration descending to show slowest first
+    let mut sorted: Vec<&CompletedAction> = actions.iter().collect();
+    sorted.sort_by(|a, b| b.duration_secs.partial_cmp(&a.duration_secs).unwrap_or(std::cmp::Ordering::Equal));
+
+    out.push_str("  Slowest actions:\n");
+    for (i, a) in sorted.iter().take(5).enumerate() {
+        let pct_time = if total_duration > 0.0 { a.duration_secs / total_duration * 100.0 } else { 0.0 };
+        let pct_tokens = if total_prompt + total_completion > 0 {
+            (a.prompt_tokens as u64 + a.completion_tokens as u64) as f64
+                / (total_prompt + total_completion) as f64 * 100.0
+        } else { 0.0 };
+        out.push_str(&format!(
+            "  {}. {} iter{}: {:.0}s ({:.0}% time) {}in+{}out ({:.0}% tokens) {}\n",
+            i + 1,
+            a.action_label,
+            a.iteration,
+            a.duration_secs,
+            pct_time,
+            a.prompt_tokens,
+            a.completion_tokens,
+            pct_tokens,
+            if a.success { "OK" } else { "FAIL" },
+        ));
+    }
+
+    // Identify bottleneck pattern
+    let avg_prompt_per_action = total_prompt as f64 / actions.len() as f64;
+    let avg_duration_per_action = total_duration / actions.len() as f64;
+
+    if avg_prompt_per_action > 100_000.0 {
+        out.push_str(&format!(
+            "  [!] High avg input tokens ({:.0}k/action) — agents reading too much context\n",
+            avg_prompt_per_action / 1000.0
+        ));
+    }
+    if avg_duration_per_action > 120.0 {
+        out.push_str(&format!(
+            "  [!] Slow avg duration ({:.0}s/action) — consider reducing agent_max_iter\n",
+            avg_duration_per_action
+        ));
+    }
+
+    let fail_rate = actions.iter().filter(|a| !a.success).count() as f64 / actions.len() as f64;
+    if fail_rate > 0.5 {
+        out.push_str(&format!(
+            "  [!] High failure rate ({:.0}%) — model may be struggling with task complexity\n",
+            fail_rate * 100.0
+        ));
+    }
+
+    out
 }
 
 // ═══════════════════════════════════════════════════════════════════════

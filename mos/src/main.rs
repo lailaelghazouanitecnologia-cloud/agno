@@ -955,9 +955,15 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 let provider = build_provider(model_profile, &api_key);
                 let capsule = build_tools_capsule(&workspace_str);
 
+                // Adaptive iteration limit per action type
+                let action_max_iter = supervisor::adaptive_max_iter(
+                    &action.kind,
+                    sup_config.agent_max_iter,
+                );
+
                 let agent_cfg = AgentConfig::new("mos-build")
                     .with_instructions(&agent_instructions)
-                    .with_max_iterations(sup_config.agent_max_iter as usize)
+                    .with_max_iterations(action_max_iter as usize)
                     .with_retries(4)
                     .with_retry_delay(2000)
                     .with_exponential_backoff(true)
@@ -974,10 +980,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 );
 
                 eprintln!(
-                    "\x1b[1;36mexecution\x1b[0m | dispatching '{}' (model: {})",
+                    "\x1b[1;36mexecution\x1b[0m | dispatching '{}' (model: {}, max_iter: {})",
                     action.kind.label(),
-                    model_profile.model
+                    model_profile.model,
+                    action_max_iter
                 );
+
+                let action_start = std::time::Instant::now();
 
                 let (tx, mut rx) = mpsc::channel::<AgentEvent>(64);
                 let agent_task = Task::new(&task_desc);
@@ -991,6 +1000,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 let result = agent.run_with_events(agent_task, Some(tx)).await;
                 let _ = event_handle.await;
 
+                let action_duration = action_start.elapsed();
                 let agent_usage = agent.total_usage();
                 total_tokens += agent_usage.total_tokens as u64;
 
@@ -1000,6 +1010,17 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     Err(e) => format!("Error: {}", e),
                 };
 
+                // Show per-action token breakdown and timing
+                eprintln!(
+                    "\x1b[1;36mexecution\x1b[0m | {} done: {}in + {}out = {} tokens, {:.1}s {}",
+                    action.kind.label(),
+                    agent_usage.prompt_tokens,
+                    agent_usage.completion_tokens,
+                    agent_usage.total_tokens,
+                    action_duration.as_secs_f64(),
+                    if success { "\x1b[32mOK\x1b[0m" } else { "\x1b[31mFAIL\x1b[0m" },
+                );
+
                 if !success {
                     let err = match &result {
                         Ok(o) => o.error.clone().unwrap_or_else(|| "Unknown".to_string()),
@@ -1007,6 +1028,17 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     };
                     eprintln!("\x1b[31maction error:\x1b[0m {}", err);
                 }
+
+                // Record context tag in graph for analysis
+                supervisor::record_action_context(
+                    &mut graph,
+                    &action,
+                    iteration,
+                    agent_usage.prompt_tokens,
+                    agent_usage.completion_tokens,
+                    action_duration.as_secs_f64(),
+                    success,
+                );
 
                 // Update graph based on what the action produced
                 let action_clone = action.clone();
@@ -1111,12 +1143,17 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     feature_id,
                     iteration,
                     tokens_used: agent_usage.total_tokens as u64,
+                    prompt_tokens: agent_usage.prompt_tokens,
+                    completion_tokens: agent_usage.completion_tokens,
+                    duration_secs: action_duration.as_secs_f64(),
                     success,
                     summary: if result_text.len() > 200 {
                         format!("{}...", &result_text[..200])
                     } else {
                         result_text.clone()
                     },
+                    context_node_ids: action_clone.context_nodes.clone(),
+                    roska_depth: format!("{}", action_clone.roska_depth),
                 });
                 request.total_tokens = total_tokens;
                 supervisor::save_request(&workspace_root, &request);
@@ -1131,19 +1168,37 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 );
             }
 
-            // Final summary
+            // Final summary with token breakdown
+            let total_prompt: u64 = request.completed_actions.iter().map(|a| a.prompt_tokens as u64).sum();
+            let total_completion: u64 = request.completed_actions.iter().map(|a| a.completion_tokens as u64).sum();
+            let total_duration: f64 = request.completed_actions.iter().map(|a| a.duration_secs).sum();
+
             eprintln!();
             eprintln!("\x1b[1;36m── build summary ──\x1b[0m");
             eprintln!("\x1b[1;36mmos\x1b[0m | request: {}", request.id);
             eprintln!("\x1b[1;36mmos\x1b[0m | status: {:?}", request.status);
             eprintln!("\x1b[1;36mmos\x1b[0m | actions completed: {}", request.completed_actions.len());
-            eprintln!("\x1b[1;36mmos\x1b[0m | total tokens: {}", total_tokens);
+            eprintln!(
+                "\x1b[1;36mmos\x1b[0m | tokens: {} total ({}in + {}out)",
+                total_tokens, total_prompt, total_completion
+            );
+            eprintln!(
+                "\x1b[1;36mmos\x1b[0m | duration: {:.0}s total ({:.0}s avg/action)",
+                total_duration,
+                if request.completed_actions.is_empty() { 0.0 } else { total_duration / request.completed_actions.len() as f64 }
+            );
             eprintln!("\x1b[1;36mmos\x1b[0m | graph: {} nodes, {} edges", graph.node_count(), graph.edge_count());
             if !plan_features.is_empty() {
                 let status = supervisor::render_plan_status(&graph, &plan_features);
                 for line in status.lines() {
                     eprintln!("\x1b[1;36mmos\x1b[0m | {}", line);
                 }
+            }
+
+            // Performance analysis — identify bottlenecks
+            let perf = supervisor::render_performance_summary(&request.completed_actions);
+            for line in perf.lines() {
+                eprintln!("\x1b[1;33mperf\x1b[0m | {}", line);
             }
         }
     }

@@ -1,8 +1,8 @@
-# Contributing to agno
+# Contributing to Agno
 
-Agno is an open-source project and we welcome contributions.
+Agno is an open-source Rust project and we welcome contributions.
 
-## 👩‍💻 How to contribute
+## How to contribute
 
 Please follow the [fork and pull request](https://docs.github.com/en/get-started/quickstart/contributing-to-projects) workflow:
 
@@ -11,129 +11,113 @@ Please follow the [fork and pull request](https://docs.github.com/en/get-started
   - Add your feature or improvement.
   - **Ensure your Pull Request follows our guidelines (see below).**
   - Send a pull request.
-  - We appreciate your support & input!
 
 ## Pull Request Guidelines
-
-To maintain a clear and organized project history, please adhere to the following guidelines when submitting Pull Requests:
 
 1.  **Title Format:** Your PR title must start with a type tag enclosed in square brackets, followed by a space and a concise subject.
     - Example: `[feat] Add user authentication`
     - Valid types: `[feat]`, `[fix]`, `[docs]`, `[test]`, `[refactor]`, `[build]`, `[ci]`, `[chore]`, `[perf]`, `[style]`, `[revert]`.
 2.  **Link to Issue:** The PR description should ideally reference the issue it addresses using keywords like `fixes #<issue_number>`, `closes #<issue_number>`, or `resolves #<issue_number>`.
-    - Example: `This PR fixes #42 by implementing the new login flow.`
 
-_These guidelines are enforced automatically by our [PR Lint workflow](.github/workflows/pr-lint.yml)._
+## Prerequisites
+
+- **Rust 1.93.0+** (`rustup update stable`)
+- **Node 22+** and **Bun 1.3+** (for test projects)
+- **Python 3.x** (for test projects)
+
+## Project structure
+
+```
+agno/
+  common/     — Shared error types, config, traits (5 crates)
+  kkr/        — Agent framework core: providers, tools, inner monologue (35+ crates)
+  entity/     — Advanced agent framework: orchestration, safety, embeddings (28 crates)
+  roska/      — AST-based code analysis at configurable depths (4 crates)
+  knowledge/  — Knowledge graph and persistence (5 crates)
+  mos/        — Autonomous coding agent CLI (main binary)
+  projects/   — Test projects (c-compiler-js, lang-repl, etc.)
+```
 
 ## Development setup
 
-1. Clone the repository.
-2. Check if you have `uv` installed by running `uv --version`.
-   - If you have `uv` installed, you can skip this step.
-   - If you don't have `uv` installed, you can install it by running `pip install uv`.
-3. Create a virtual environment:
-   - For Unix, use `./scripts/dev_setup.sh`.
-   - For Windows, use `.\scripts\dev_setup.bat`.
-   - This setup will:
-     - Create a `.venv` virtual environment in the current directory.
-     - Install the required packages.
-     - Install the `agno` package in editable mode.
-4. Activate the virtual environment:
-   - On Unix: `source .venv/bin/activate`
-   - On Windows: `.venv\Scripts\activate`
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/agno-agi/agno.git
+   cd agno
+   ```
 
-> From here on you have to use `uv pip install` to install missing packages
+2. Build the main binary (MOS):
+   ```bash
+   cd mos && cargo build
+   ```
 
-## Formatting and validation
+3. Run the test suite:
+   ```bash
+   cd mos && cargo test
+   ```
 
-Ensure your code meets our quality standards by running the appropriate formatting and validation script before submitting a pull request:
+4. Build all workspaces:
+   ```bash
+   cargo build --workspace
+   ```
 
-- For Unix:
-  - `./scripts/format.sh`
-  - `./scripts/validate.sh`
-- For Windows:
-  - `.\scripts\format.bat`
-  - `.\scripts\validate.bat`
+## Building individual workspaces
 
-These scripts will perform code formatting with `ruff` and static type checks with `mypy`.
+Each workspace can be built independently:
 
-## Local testing
+```bash
+cd common && cargo build
+cd kkr && cargo build
+cd roska && cargo build
+cd knowledge && cargo build
+cd entity && cargo build
+cd mos && cargo build
+```
 
-Before submitting a pull request, ensure all tests pass locally:
+## Running tests
 
-1. Do the development setup above.
+```bash
+# Run MOS tests (main binary)
+cd mos && cargo test
 
-2. Run the test suite `./scripts/test.sh`
+# Run tests for a specific workspace
+cd kkr && cargo test
+cd roska && cargo test
+cd knowledge && cargo test
 
-3. Run specific test files or test cases: `pytest ./libs/agno/tests/unit/utils/test_string.py` or whatever file you want to test.
+# Run a specific test
+cargo test -p mos -- graph_ops::tests::test_gap_analysis
+```
 
-Make sure all tests pass before submitting your pull request. If you add new features, include appropriate test coverage.
+## Code quality
 
-## Adding a new Vector Database
+- Run `cargo clippy` to check for lint issues.
+- Run `cargo fmt --check` to verify formatting.
+- Ensure `cargo build` produces no errors (warnings are tracked and being reduced).
+- All existing tests must pass before submitting a PR.
 
-1. Setup your local environment by following the [Development setup](#development-setup).
-2. Create a new directory under `libs/agno/agno/vectordb` for the new vector database.
-3. Create a Class for your VectorDb that implements the `VectorDb` interface
-   - Your Class will be in the `libs/agno/agno/vectordb/<your_db>/<your_db>.py` file.
-   - The `VectorDb` interface is defined in `libs/agno/agno/vectordb/base
-   - Import your `VectorDb` Class in `libs/agno/agno/vectordb/<your_db>/__init__.py`.
-   - Checkout the [`libs/agno/agno/vectordb/pgvector/pgvector`](https://github.com/agno-agi/agno/blob/main/libs/agno/agno/vectordb/pgvector/pgvector.py) file for an example.
-4. Add a recipe for using your `VectorDb` under `cookbook/knowledge/vector_db/<your_db>`.
-   - Checkout [`cookbook/knowledge/vector_db/pgvector/pgvector_db`](https://github.com/agno-agi/agno/blob/main/cookbook/knowledge/vector_db/pgvector/pgvector_db.py) for an example.
-5. Important: Format and validate your code by running `./scripts/format.sh` and `./scripts/validate.sh`.
-6. Submit a pull request.
+## Adding a new LLM Provider
 
-## Adding a new Model Provider
+1. Create a new crate under `kkr/crates/providers/` (e.g., `kkr-provider-mymodel`).
+2. Implement the `Provider` trait from `kkr-core`.
+3. Add the crate to `kkr/Cargo.toml` workspace members.
+4. Add tests in the crate's `src/` or `tests/` directory.
 
-1. Setup your local environment by following the [Development setup](#development-setup).
-2. Create a new directory under `libs/agno/agno/models` for the new Model provider.
-3. If the Model provider supports the OpenAI API spec:
-   - Create a Class for your LLM provider that inherits the `OpenAILike` Class from `libs/agno/agno/models/openai/like.py`.
-   - Your Class will be in the `libs/agno/agno/models/<your_model>/<your_model>.py` file.
-   - Import your Class in the `libs/agno/agno/models/<your_model>/__init__.py` file.
-   - Checkout the [`agno/models/xai/xai.py`](https://github.com/agno-agi/agno/blob/main/libs/agno/agno/models/together/together.py) file for an example.
-4. If the Model provider does not support the OpenAI API spec:
-   - Reach out to us on [Discord](https://discord.gg/4MtYHHrgA8) or open an issue to discuss the best way to integrate your LLM provider.
-   - Checkout [`agno/models/anthropic/claude.py`](https://github.com/agno-agi/agno/blob/main/libs/agno/agno/models/anthropic/claude.py) or [`agno/models/cohere/chat.py`](https://github.com/agno-agi/agno/blob/main/libs/agno/agno/models/cohere/chat.py) for inspiration.
-5. Add your model provider to `libs/agno/agno/models/utils.py`:
-   - Add a new `elif` clause in the `get_model()` function with your provider name
-   - Use the provider name that matches your module directory (e.g., "meta" for `models/meta/`)
-   - Import and return your Model class with the provided `model_id`
-   - This enables users to use the string format: `model="yourprovider:model-name"`
-   - Example:
-     ```python
-     elif provider == "yourprovider":
-         from agno.models.yourprovider import YourModel
-         return YourModel(id=model_id)
-     ```
-6. Add a recipe for using your Model provider under `cookbook/models/<your_model>`.
-   - Checkout [`agno/cookbook/models/aws/claude`](https://github.com/agno-agi/agno/tree/main/cookbook/models/aws/claude) for an example.
-   - Show both the model class and string syntax in your examples
-7. Important: Format and validate your code by running `./scripts/format.sh` and `./scripts/validate.sh`.
-8. Submit a pull request.
+## Adding a new Tool
 
-## Adding a new Tool.
+1. Create a new crate under `kkr/crates/tools/` (e.g., `kkr-tool-mytool`).
+2. Implement the `Tool` trait from `kkr-core`.
+3. Add the crate to `kkr/Cargo.toml` workspace members.
+4. Add usage examples and tests.
 
-1. Setup your local environment by following the [Development setup](#development-setup).
-2. Create a new directory under `libs/agno/agno/tools` for the new Tool.
-3. Create a Class for your Tool that inherits the `Toolkit` Class from `libs/agno/agno/tools/toolkit/.py`.
-   - Your Class will be in `libs/agno/agno/tools/<your_tool>.py`.
-   - Make sure to register all functions in your class via a flag.
-   - Checkout the [`agno/tools/youtube.py`](https://github.com/agno-agi/agno/blob/main/libs/agno/agno/tools/youtube.py) file for an example.
-   - If your tool requires an API key, checkout the [`agno/tools/serpapi_tools.py`](https://github.com/agno-agi/agno/blob/main/libs/agno/agno/tools/serpapi_tools.py) as well.
-4. Add a recipe for using your Tool under `cookbook/tools/<your_tool>`.
-   - Checkout [`agno/cookbook/tools/youtube_tools`](https://github.com/agno-agi/agno/blob/main/cookbook/tools/youtube_tools.py) for an example.
-5. Important: Format and validate your code by running `./scripts/format.sh` and `./scripts/validate.sh`.
-6. Submit a pull request.
+## Architecture notes
 
-Message us on [Discord](https://discord.gg/4MtYHHrgA8) or post on [Discourse](https://community.agno.com/) if you have any questions or need help with credits.
+- **MOS** is the main binary. It orchestrates builds using a graph-driven supervisor.
+- **KKR** provides the Agent/Tool/Capsule abstractions and LLM provider integrations.
+- **Roska** analyzes code at 4 depth levels (Overview, Structure, Detail, Body) to control context cost.
+- **Knowledge** maintains a persistent graph of features, modules, and decisions.
+- The **build supervisor** (`mos/src/build.rs`) uses `TaskQueue`, `TierBudget`, `RuleSet`, and `PlanGraph` to orchestrate multi-phase builds.
 
-## 📚 Resources
+## License
 
-- <a href="https://docs.agno.com/introduction" target="_blank" rel="noopener noreferrer">Documentation</a>
-- <a href="https://discord.gg/4MtYHHrgA8" target="_blank" rel="noopener noreferrer">Discord</a>
-- <a href="https://community.agno.com/" target="_blank" rel="noopener noreferrer">Discourse</a>
-
-## 📝 License
-
-This project is licensed under the terms of the [Apache-2.0 license](/LICENSE)
+This project is licensed under the terms of the [Apache-2.0 license](/LICENSE).

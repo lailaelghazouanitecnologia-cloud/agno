@@ -741,54 +741,25 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // ── Supervised multi-phase build ──
+        // ── Graph-driven supervised build ──
         Command::Build { task, overrides } => {
             let workspace_root = overrides.workspace.canonicalize().unwrap_or(overrides.workspace.clone());
             let workspace_str = workspace_root.display().to_string();
 
             let cfg = MosConfig::load(&workspace_root);
-            let api_key = match env::var("OPENAI_API_KEY") {
-                Ok(k) => k,
-                Err(_) => {
-                    eprintln!("\x1b[31mmos error:\x1b[0m OPENAI_API_KEY not set");
+            let api_key = match cfg.resolve_api_key() {
+                Some(k) if !k.is_empty() => k,
+                _ => {
+                    eprintln!("\x1b[31mmos error:\x1b[0m no API key (set MOS_API_KEY or OPENAI_API_KEY)");
                     std::process::exit(1);
                 }
-            };
-
-            // Determine prompts directory
-            let prompts_dir = if workspace_root.join("prompts").exists() {
-                workspace_root.join("prompts")
-            } else {
-                // Fall back to the MOS binary's bundled prompts
-                let exe_dir = env::current_exe()
-                    .ok()
-                    .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-                    .unwrap_or_else(|| PathBuf::from("."));
-                exe_dir.join("../../prompts") // mos/prompts relative to mos/target/debug/mos
             };
 
             let sup_config = supervisor::SupervisorConfig {
                 max_iterations: overrides.max_iterations.unwrap_or(20) as u32,
                 agent_max_iter: 15,
                 token_budget: 2_000_000,
-                parallel_modules: false,
-                prompts_dir: prompts_dir.clone(),
             };
-
-            eprintln!("\x1b[1;36mmos\x1b[0m v{}", VERSION);
-            eprintln!("\x1b[1;36mmos\x1b[0m | \x1b[1;33msupervised build\x1b[0m");
-            eprintln!("\x1b[1;36mmos\x1b[0m | workspace: {}", workspace_str);
-            eprintln!("\x1b[1;36mmos\x1b[0m | task: {}", task);
-            eprintln!("\x1b[1;36mmos\x1b[0m | max phases: {}", sup_config.max_iterations);
-            eprintln!("\x1b[1;36mmos\x1b[0m | prompts: {}", prompts_dir.display());
-
-            // Create/load user request
-            let mut request = supervisor::load_active_request(&workspace_root)
-                .unwrap_or_else(|| supervisor::UserRequest::new(&task));
-            eprintln!("\x1b[1;36mmos\x1b[0m | request: {} ({})", request.id, if request.phases_completed.is_empty() { "new" } else { "resumed" });
-
-            let mut module_tracker = supervisor::ModuleTracker::new();
-            let mut total_tokens: u64 = 0;
 
             let approval = if overrides.autonomous {
                 ApprovalPolicy::Never
@@ -800,225 +771,270 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 }
             };
 
+            // Load knowledge graph
+            let mut graph = load_graph(&cfg);
+
+            // Roska scan → project context (token-efficient perception)
+            if cfg.auto_scan {
+                if let Some(scan) = scanner::scan_into_graph(&workspace_root, &mut graph) {
+                    eprintln!(
+                        "\x1b[1;35mperception\x1b[0m | {} crates, {} files scanned",
+                        scan.crate_count, scan.file_count
+                    );
+                }
+            }
+
+            eprintln!("\x1b[1;36mmos\x1b[0m v{}", VERSION);
+            eprintln!("\x1b[1;36mmos\x1b[0m | \x1b[1;33mgraph-driven build\x1b[0m");
+            eprintln!("\x1b[1;36mmos\x1b[0m | workspace: {}", workspace_str);
+            eprintln!("\x1b[1;36mmos\x1b[0m | task: {}", task);
+            eprintln!("\x1b[1;36mmos\x1b[0m | graph: {} nodes, {} edges", graph.node_count(), graph.edge_count());
+
+            // Load or create user request
+            let mut request = supervisor::load_active_request(&workspace_root)
+                .unwrap_or_else(|| supervisor::UserRequest::new(&task));
+            let is_resumed = !request.completed_actions.is_empty();
+            eprintln!(
+                "\x1b[1;36mmos\x1b[0m | request: {} ({})",
+                request.id,
+                if is_resumed { "resumed" } else { "new" }
+            );
+
+            // Try to find existing plan features in the graph (for resume)
+            let mut plan_features = if !request.plan_features.is_empty() {
+                request.plan_features.clone()
+            } else {
+                supervisor::find_plan_features(&graph)
+            };
+
+            let mut total_tokens: u64 = request.total_tokens;
+
             // ── Supervisor Loop ──
             for iteration in 0..sup_config.max_iterations {
                 eprintln!();
-                eprintln!("\x1b[1;34m── supervisor iteration {}/{} ──\x1b[0m", iteration + 1, sup_config.max_iterations);
-
-                // Phase 1: Evaluate current state
-                eprintln!("\x1b[1;34mevaluate\x1b[0m | inspecting workspace state...");
-                let eval_vars = supervisor::PromptVars {
-                    task: task.clone(),
-                    ..Default::default()
-                };
-                let eval_prompt = supervisor::load_prompt(&prompts_dir, &supervisor::Phase::Evaluate, &eval_vars);
-
-                let eval_profile = cfg.model_for_role("architect");
-                let eval_provider = build_provider(eval_profile, &api_key);
-                let eval_capsule = build_tools_capsule(&workspace_str);
-
-                let eval_agent_cfg = AgentConfig::new("mos-eval")
-                    .with_instructions(&eval_prompt)
-                    .with_max_iterations(10)
-                    .with_retries(4)
-                    .with_retry_delay(2000)
-                    .with_exponential_backoff(true)
-                    .with_approval_policy(approval.clone());
-
-                let eval_ws = Workspace::new(camino::Utf8PathBuf::from(&workspace_str));
-                let mut eval_agent = Agent::new(eval_agent_cfg, eval_ws, Box::new(eval_provider));
-                eval_agent.add_capsule(eval_capsule);
-
-                let eval_task = Task::new("Evaluate the current state of this project workspace");
-                let eval_output = match tokio::runtime::Handle::current().block_on(async {
-                    eval_agent.run(eval_task).await
-                }) {
-                    Ok(o) => o,
-                    Err(e) => {
-                        eprintln!("\x1b[31mevaluate error:\x1b[0m {}", e);
-                        request.status = supervisor::RequestStatus::Failed(e.to_string());
-                        supervisor::save_request(&workspace_root, &request);
-                        break;
-                    }
-                };
-
-                let eval_usage = eval_agent.total_usage();
-                total_tokens += eval_usage.total_tokens as u64;
-
-                // Parse state vector from evaluation
-                let state = eval_output.result
-                    .as_deref()
-                    .and_then(supervisor::parse_state_response)
-                    .unwrap_or_else(supervisor::StateVector::empty);
-
                 eprintln!(
-                    "\x1b[1;34mevaluate\x1b[0m | state: {:?} ({:.0}%)",
-                    state.bits,
-                    state.completion_ratio() * 100.0
+                    "\x1b[1;34m── iteration {}/{} ──\x1b[0m",
+                    iteration + 1,
+                    sup_config.max_iterations
                 );
-                if !state.summary.is_empty() {
-                    eprintln!("\x1b[1;34mevaluate\x1b[0m | {}", state.summary);
-                }
-                if !state.modules.is_empty() {
-                    eprintln!("\x1b[1;34mevaluate\x1b[0m | modules: {:?}", state.modules);
-                }
 
-                request.state_history.push(state.clone());
-
-                // Update module tracker from state
-                if !state.modules.is_empty() && module_tracker.modules.is_empty() {
-                    let plan_content = std::fs::read_to_string(workspace_root.join("PLAN.md")).unwrap_or_default();
-                    module_tracker = supervisor::ModuleTracker::from_state(&state, &plan_content);
-                }
-
-                // Check completion
-                if state.is_complete() {
-                    eprintln!("\x1b[1;32m✓ Project complete!\x1b[0m");
-                    request.status = supervisor::RequestStatus::Completed;
-                    supervisor::save_request(&workspace_root, &request);
-                    break;
-                }
-
-                // Check token budget
+                // Token budget check
                 if total_tokens >= sup_config.token_budget {
-                    eprintln!("\x1b[33mbudget\x1b[0m | token budget exhausted ({}/{})", total_tokens, sup_config.token_budget);
+                    eprintln!(
+                        "\x1b[33mbudget\x1b[0m | exhausted ({}/{})",
+                        total_tokens, sup_config.token_budget
+                    );
                     request.status = supervisor::RequestStatus::Paused;
                     supervisor::save_request(&workspace_root, &request);
                     break;
                 }
 
-                // Phase 2: Determine next phase and dispatch
-                let next_phase = state.next_phase();
-                eprintln!("\x1b[1;35mphase\x1b[0m | next: {:?}", next_phase);
+                // Gap analysis → derive actions
+                let gaps = supervisor::analyze_gaps(&graph, &plan_features);
+                let actions = supervisor::derive_actions(&gaps, &graph);
 
-                if next_phase == supervisor::Phase::Done {
-                    eprintln!("\x1b[1;32m✓ All phases complete!\x1b[0m");
+                if actions.is_empty() || supervisor::is_plan_complete(&graph, &plan_features) {
+                    eprintln!("\x1b[1;32m=== Project complete! ===\x1b[0m");
                     request.status = supervisor::RequestStatus::Completed;
                     supervisor::save_request(&workspace_root, &request);
+                    save_graph(&cfg, &graph);
                     break;
                 }
 
-                // Build prompt variables
-                let plan_content = std::fs::read_to_string(workspace_root.join("PLAN.md")).unwrap_or_default();
-                let mut phase_module_name = String::new();
-                let mut phase_module_spec = String::new();
-
-                if next_phase == supervisor::Phase::Implement {
-                    if let Some(m) = module_tracker.next_unimplemented() {
-                        phase_module_name = m.name.clone();
-                        phase_module_spec = m.spec.clone();
-                        eprintln!("\x1b[1;35mphase\x1b[0m | implementing module: {}", phase_module_name);
-                    }
-                } else if next_phase == supervisor::Phase::Test {
-                    if let Some(m) = module_tracker.next_untested() {
-                        phase_module_name = m.name.clone();
-                        phase_module_spec = m.spec.clone();
-                        eprintln!("\x1b[1;35mphase\x1b[0m | testing module: {}", phase_module_name);
+                // Show plan status
+                if !plan_features.is_empty() {
+                    let status = supervisor::render_plan_status(&graph, &plan_features);
+                    for line in status.lines() {
+                        eprintln!("\x1b[1;35mplan\x1b[0m | {}", line);
                     }
                 }
 
-                let vars = supervisor::PromptVars {
-                    task: task.clone(),
-                    plan: plan_content,
-                    module_name: phase_module_name.clone(),
-                    module_spec: phase_module_spec,
-                    modules: state.modules.join(", "),
-                    errors: state.errors.join("\n"),
-                };
-
-                let phase_prompt = supervisor::load_prompt(&prompts_dir, &next_phase, &vars);
-
-                // Build and run the phase agent
-                let phase_profile = cfg.model_for_role("coder");
-                let phase_provider = build_provider(phase_profile, &api_key);
-                let phase_capsule = build_tools_capsule(&workspace_str);
-
-                let phase_instructions = format!(
-                    "{}\n\n## System\nYou are mos, an autonomous coding agent. You BUILD software.\n\
-                     You MUST use write_file to create files. Do NOT just describe what to do.\n\
-                     Keep working until this phase is complete.",
-                    phase_prompt
+                // Take highest priority action
+                let action = &actions[0];
+                eprintln!(
+                    "\x1b[1;35maction\x1b[0m | {} (priority: {:.2}, depth: {}, ~{} tokens)",
+                    action.kind.label(),
+                    action.priority,
+                    action.roska_depth,
+                    action.estimated_tokens
                 );
 
-                let phase_agent_cfg = AgentConfig::new("mos-phase")
-                    .with_instructions(&phase_instructions)
+                // Get targeted roska context at the action's depth level
+                let roska_context = scanner::scan_project(&workspace_root, action.roska_depth)
+                    .map(|s| s.overview)
+                    .unwrap_or_default();
+
+                // Choose model based on action depth
+                let model_profile = match &action.kind {
+                    supervisor::ActionKind::Plan | supervisor::ActionKind::Scaffold => {
+                        cfg.model_for_role("architect")
+                    }
+                    supervisor::ActionKind::Verify => cfg.model_for_role("architect"),
+                    _ => {
+                        let depth = action.roska_depth as u8;
+                        cfg.model_for_depth(depth)
+                    }
+                };
+
+                // Compose prompt dynamically from graph context
+                let action_prompt = supervisor::compose_prompt(
+                    action,
+                    &task,
+                    &graph,
+                    &roska_context,
+                );
+
+                let agent_instructions = format!(
+                    "{}\n\n## System\nYou are mos, an autonomous coding agent. You BUILD software.\n\
+                     You MUST use write_file to create files. Do NOT just describe what to do.",
+                    action_prompt
+                );
+
+                // Build and run the agent
+                let provider = build_provider(model_profile, &api_key);
+                let capsule = build_tools_capsule(&workspace_str);
+
+                let agent_cfg = AgentConfig::new("mos-build")
+                    .with_instructions(&agent_instructions)
                     .with_max_iterations(sup_config.agent_max_iter as usize)
                     .with_retries(4)
                     .with_retry_delay(2000)
                     .with_exponential_backoff(true)
                     .with_approval_policy(approval.clone());
 
-                let phase_ws = Workspace::new(camino::Utf8PathBuf::from(&workspace_str));
-                let mut phase_agent = Agent::new(phase_agent_cfg, phase_ws, Box::new(phase_provider));
-                phase_agent.add_capsule(phase_capsule);
+                let ws = Workspace::new(camino::Utf8PathBuf::from(&workspace_str));
+                let mut agent = Agent::new(agent_cfg, ws, Box::new(provider));
+                agent.add_capsule(capsule);
 
-                let phase_task_desc = format!(
-                    "Execute phase '{}' for task: {}{}",
-                    next_phase.as_str(),
-                    &task,
-                    if !phase_module_name.is_empty() { format!(" (module: {})", phase_module_name) } else { String::new() }
+                let task_desc = format!(
+                    "{}: {}",
+                    action.kind.label(),
+                    &task
                 );
 
-                eprintln!("\x1b[1;36mexecution\x1b[0m | dispatching agent for phase '{}'", next_phase.as_str());
+                eprintln!(
+                    "\x1b[1;36mexecution\x1b[0m | dispatching '{}' (model: {})",
+                    action.kind.label(),
+                    model_profile.model
+                );
 
                 let (tx, mut rx) = mpsc::channel::<AgentEvent>(64);
-                let phase_task = Task::new(&phase_task_desc);
+                let agent_task = Task::new(&task_desc);
 
-                let phase_result = tokio::runtime::Handle::current().block_on(async {
-                    let output_future = phase_agent.run_with_events(phase_task, Some(tx));
-
-                    let event_future = async {
-                        while let Some(event) = rx.recv().await {
-                            handle_event(event);
-                        }
-                    };
-
-                    let (result, _) = tokio::join!(output_future, event_future);
-                    result
+                let event_handle = tokio::spawn(async move {
+                    while let Some(event) = rx.recv().await {
+                        handle_event(event);
+                    }
                 });
 
-                let mut phase_result_status = supervisor::PhaseResult::Success;
+                let result = agent.run_with_events(agent_task, Some(tx)).await;
+                let _ = event_handle.await;
 
-                match phase_result {
-                    Ok(output) => {
-                        let phase_usage = phase_agent.total_usage();
-                        total_tokens += phase_usage.total_tokens as u64;
-                        if !output.is_success() {
-                            let err_msg = output.error.unwrap_or_else(|| "Unknown error".to_string());
-                            eprintln!("\x1b[31mphase error:\x1b[0m {}", err_msg);
-                            phase_result_status = supervisor::PhaseResult::Failure(err_msg);
+                let agent_usage = agent.total_usage();
+                total_tokens += agent_usage.total_tokens as u64;
+
+                let success = result.as_ref().map(|o| o.is_success()).unwrap_or(false);
+                let result_text = match &result {
+                    Ok(o) => o.result.clone().unwrap_or_default(),
+                    Err(e) => format!("Error: {}", e),
+                };
+
+                if !success {
+                    let err = match &result {
+                        Ok(o) => o.error.clone().unwrap_or_else(|| "Unknown".to_string()),
+                        Err(e) => e.to_string(),
+                    };
+                    eprintln!("\x1b[31maction error:\x1b[0m {}", err);
+                }
+
+                // Update graph based on what the action produced
+                let action_clone = action.clone();
+                match &action_clone.kind {
+                    supervisor::ActionKind::Plan => {
+                        // Parse plan response → create Feature nodes
+                        let features = supervisor::parse_plan_into_graph(
+                            &result_text,
+                            &task,
+                            &mut graph,
+                        );
+                        if !features.is_empty() {
+                            eprintln!(
+                                "\x1b[1;35mplan\x1b[0m | created {} features in graph",
+                                features.len()
+                            );
+                            plan_features = features;
+                            request.plan_features = plan_features.clone();
+                        } else {
+                            eprintln!("\x1b[33mplan\x1b[0m | failed to parse plan from model response");
                         }
                     }
-                    Err(e) => {
-                        let phase_usage = phase_agent.total_usage();
-                        total_tokens += phase_usage.total_tokens as u64;
-                        eprintln!("\x1b[31mphase error:\x1b[0m {}", e);
-                        phase_result_status = supervisor::PhaseResult::Failure(e.to_string());
+                    supervisor::ActionKind::Implement { ref feature_id, .. } => {
+                        if success {
+                            supervisor::mark_feature_implemented(&mut graph, feature_id);
+                            eprintln!(
+                                "\x1b[1;32mfeature\x1b[0m | {} → implemented",
+                                feature_id
+                            );
+                        }
                     }
+                    supervisor::ActionKind::Test { ref feature_id, .. } => {
+                        supervisor::mark_feature_tested(&mut graph, feature_id, success);
+                        eprintln!(
+                            "\x1b[1;32mfeature\x1b[0m | {} → {}",
+                            feature_id,
+                            if success { "verified" } else { "tested (failing)" }
+                        );
+                    }
+                    supervisor::ActionKind::Fix { ref feature_id, .. } => {
+                        if success {
+                            supervisor::mark_feature_tested(&mut graph, feature_id, true);
+                            eprintln!(
+                                "\x1b[1;32mfeature\x1b[0m | {} → verified (fix applied)",
+                                feature_id
+                            );
+                        }
+                    }
+                    supervisor::ActionKind::Verify => {
+                        if success {
+                            // Mark all features as verified
+                            for fid in &plan_features {
+                                supervisor::mark_feature_tested(&mut graph, fid, true);
+                            }
+                            eprintln!("\x1b[1;32mverify\x1b[0m | all features verified");
+                        }
+                    }
+                    _ => {}
                 }
 
-                // Mark module as implemented/tested if applicable
-                if phase_result_status == supervisor::PhaseResult::Success {
-                    if next_phase == supervisor::Phase::Implement && !phase_module_name.is_empty() {
-                        module_tracker.mark_implemented(&phase_module_name);
-                    } else if next_phase == supervisor::Phase::Test && !phase_module_name.is_empty() {
-                        module_tracker.mark_tested(&phase_module_name, true);
+                // Record completed action
+                let feature_id = match &action_clone.kind {
+                    supervisor::ActionKind::Implement { ref feature_id, .. }
+                    | supervisor::ActionKind::Test { ref feature_id, .. }
+                    | supervisor::ActionKind::Fix { ref feature_id, .. } => {
+                        Some(feature_id.clone())
                     }
-                }
-
-                // Record phase
-                request.phases_completed.push(supervisor::PhaseRecord {
-                    phase: next_phase.clone(),
+                    _ => None,
+                };
+                request.completed_actions.push(supervisor::CompletedAction {
+                    action_label: action_clone.kind.label().to_string(),
+                    feature_id,
                     iteration,
-                    tokens_used: total_tokens,
-                    result: phase_result_status,
-                    module_name: if phase_module_name.is_empty() { None } else { Some(phase_module_name) },
+                    tokens_used: agent_usage.total_tokens as u64,
+                    success,
+                    summary: if result_text.len() > 200 {
+                        format!("{}...", &result_text[..200])
+                    } else {
+                        result_text.clone()
+                    },
                 });
                 request.total_tokens = total_tokens;
                 supervisor::save_request(&workspace_root, &request);
 
+                // Save graph after each iteration
+                save_graph(&cfg, &graph);
+
                 eprintln!(
-                    "\x1b[1;36mmos\x1b[0m | tokens so far: {} ({:.0}% of budget)",
+                    "\x1b[1;36mmos\x1b[0m | tokens: {} ({:.0}% of budget)",
                     total_tokens,
                     (total_tokens as f64 / sup_config.token_budget as f64) * 100.0
                 );
@@ -1029,10 +1045,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             eprintln!("\x1b[1;36m── build summary ──\x1b[0m");
             eprintln!("\x1b[1;36mmos\x1b[0m | request: {}", request.id);
             eprintln!("\x1b[1;36mmos\x1b[0m | status: {:?}", request.status);
-            eprintln!("\x1b[1;36mmos\x1b[0m | phases completed: {}", request.phases_completed.len());
+            eprintln!("\x1b[1;36mmos\x1b[0m | actions completed: {}", request.completed_actions.len());
             eprintln!("\x1b[1;36mmos\x1b[0m | total tokens: {}", total_tokens);
-            if let Some(last_state) = request.state_history.last() {
-                eprintln!("\x1b[1;36mmos\x1b[0m | final state: {:?} ({:.0}%)", last_state.bits, last_state.completion_ratio() * 100.0);
+            eprintln!("\x1b[1;36mmos\x1b[0m | graph: {} nodes, {} edges", graph.node_count(), graph.edge_count());
+            if !plan_features.is_empty() {
+                let status = supervisor::render_plan_status(&graph, &plan_features);
+                for line in status.lines() {
+                    eprintln!("\x1b[1;36mmos\x1b[0m | {}", line);
+                }
             }
         }
     }

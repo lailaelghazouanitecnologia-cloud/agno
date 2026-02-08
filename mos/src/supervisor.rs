@@ -1,173 +1,169 @@
-//! Supervisor — orchestrates multi-phase agent execution with state-based prompt injection.
+//! Graph-Driven Supervisor — orchestrates agent execution via gap analysis.
 //!
-//! The supervisor evaluates workspace state via a binary state vector,
-//! selects the appropriate prompt template, and dispatches agents for each phase.
-//! It persists user requests and tracks execution across supervisor iterations.
+//! Replaces the hardcoded state machine with three interconnected graph layers:
+//!
+//! - **Plan Graph**: Feature nodes with Spec children → what we WANT
+//! - **Project Graph**: Module/File nodes from roska scans → what we HAVE
+//! - **Intent Graph**: Conversation nodes tracking user request evolution
 //!
 //! Architecture:
 //! ```text
-//! User Request → Persist → Supervisor Loop:
-//!   1. Evaluate state (model inspects workspace → state vector [0/1 x 10])
-//!   2. Select prompt template based on state
-//!   3. Dispatch agent with injected prompt
-//!   4. Monitor via events, update state
-//!   5. Repeat until state = [1,1,1,1,1,1,1,1,1,1] or budget exhausted
+//! Task → Plan Graph (Features + Specs)
+//!          ↕ gap analysis ↕
+//! Roska → Project Graph (Modules + Files)
+//!          ↓
+//! Actions (prioritized, context-aware)
+//!          ↓
+//! Prompt Composition (from graph context + roska depth)
+//!          ↓
+//! Agent Dispatch
 //! ```
+//!
+//! Prompts are composed dynamically from graph context, NOT from template files.
+//! Roska depth levels control token cost: cheap overview for planning, deep body for fixes.
 
+use knowledge_core::graph::*;
+use knowledge_graph::KnowledgeGraph;
+use roska_descriptor::Depth;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::fs;
 
-// ── State Vector ──
+// ── Action System ──
 
-/// 10-position binary state vector representing project completion status.
-/// Each position is 0 (not done) or 1 (done).
+/// A dynamically derived action — replaces the old hardcoded Phase enum.
+/// Actions are produced by gap analysis between plan and project graphs.
+#[derive(Debug, Clone)]
+pub struct Action {
+    pub kind: ActionKind,
+    /// 0.0–1.0; higher = more urgent. Used for prioritization.
+    pub priority: f32,
+    /// Node IDs whose graph context should be injected into the prompt.
+    pub context_nodes: Vec<String>,
+    /// Roska depth for the code analysis included in the prompt.
+    pub roska_depth: Depth,
+    /// Estimated token cost (for budget tracking).
+    pub estimated_tokens: u32,
+}
+
+/// What the action does. Each variant carries only the data it needs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StateVector {
-    pub bits: [u8; 10],
-    pub summary: String,
-    pub modules: Vec<String>,
-    pub errors: Vec<String>,
-    pub next_priority: String,
-}
-
-impl StateVector {
-    pub fn empty() -> Self {
-        Self {
-            bits: [0; 10],
-            summary: String::new(),
-            modules: Vec::new(),
-            errors: Vec::new(),
-            next_priority: String::new(),
-        }
-    }
-
-    pub fn has_plan(&self) -> bool { self.bits[0] == 1 }
-    pub fn has_structure(&self) -> bool { self.bits[1] == 1 }
-    pub fn modules_defined(&self) -> bool { self.bits[2] == 1 }
-    pub fn module_impl(&self) -> bool { self.bits[3] == 1 }
-    pub fn all_modules_impl(&self) -> bool { self.bits[4] == 1 }
-    pub fn has_tests(&self) -> bool { self.bits[5] == 1 }
-    pub fn tests_pass(&self) -> bool { self.bits[6] == 1 }
-    pub fn has_integration(&self) -> bool { self.bits[7] == 1 }
-    pub fn integration_pass(&self) -> bool { self.bits[8] == 1 }
-    pub fn verified(&self) -> bool { self.bits[9] == 1 }
-
-    pub fn is_complete(&self) -> bool {
-        self.bits.iter().all(|&b| b == 1)
-    }
-
-    pub fn completion_ratio(&self) -> f32 {
-        let done = self.bits.iter().filter(|&&b| b == 1).count();
-        done as f32 / 10.0
-    }
-
-    /// Determine which phase to execute next based on state.
-    pub fn next_phase(&self) -> Phase {
-        if !self.has_plan() {
-            return Phase::Plan;
-        }
-        if !self.has_structure() {
-            return Phase::Structure;
-        }
-        if !self.modules_defined() {
-            return Phase::Plan; // Re-plan to define modules
-        }
-        if !self.all_modules_impl() {
-            // Find next unimplemented module
-            return Phase::Implement;
-        }
-        if !self.has_tests() {
-            return Phase::Test;
-        }
-        if !self.tests_pass() {
-            return Phase::Debug;
-        }
-        if !self.has_integration() {
-            return Phase::Integrate;
-        }
-        if !self.integration_pass() {
-            return Phase::Debug;
-        }
-        if !self.verified() {
-            return Phase::Verify;
-        }
-        Phase::Done
-    }
-}
-
-// ── Phases ──
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Phase {
-    Evaluate,
+pub enum ActionKind {
+    /// Decompose user task into Feature + Spec nodes in the plan graph.
     Plan,
-    Structure,
-    Implement,
-    Test,
-    Debug,
+    /// Scan project with roska at a given depth to refresh the project graph.
+    Scan { depth: u8 },
+    /// Create project skeleton (config, dirs, entry points).
+    Scaffold,
+    /// Implement a specific feature.
+    Implement { feature_id: String, feature_name: String },
+    /// Write tests for a feature.
+    Test { feature_id: String, feature_name: String },
+    /// Fix failing tests or errors.
+    Fix { feature_id: String, errors: Vec<String> },
+    /// Wire all implemented modules together.
     Integrate,
+    /// End-to-end verification of the complete system.
     Verify,
-    Done,
 }
 
-impl Phase {
-    pub fn as_str(&self) -> &'static str {
+impl ActionKind {
+    pub fn label(&self) -> &str {
         match self {
-            Phase::Evaluate => "evaluate",
-            Phase::Plan => "plan",
-            Phase::Structure => "structure",
-            Phase::Implement => "implement",
-            Phase::Test => "test",
-            Phase::Debug => "debug",
-            Phase::Integrate => "integrate",
-            Phase::Verify => "verify",
-            Phase::Done => "done",
-        }
-    }
-
-    pub fn prompt_file(&self) -> &'static str {
-        match self {
-            Phase::Evaluate => "evaluate.md",
-            Phase::Plan => "plan.md",
-            Phase::Structure => "structure.md",
-            Phase::Implement => "implement.md",
-            Phase::Test => "test.md",
-            Phase::Debug => "debug.md",
-            Phase::Integrate => "integrate.md",
-            Phase::Verify => "verify.md",
-            Phase::Done => "verify.md",
+            ActionKind::Plan => "plan",
+            ActionKind::Scan { .. } => "scan",
+            ActionKind::Scaffold => "scaffold",
+            ActionKind::Implement { .. } => "implement",
+            ActionKind::Test { .. } => "test",
+            ActionKind::Fix { .. } => "fix",
+            ActionKind::Integrate => "integrate",
+            ActionKind::Verify => "verify",
         }
     }
 }
 
-// ── User Request ──
+// ── Gap Analysis ──
+
+/// A gap between what's planned and what exists in the project.
+#[derive(Debug, Clone)]
+pub struct Gap {
+    pub feature_id: String,
+    pub feature_name: String,
+    pub status: GapStatus,
+    /// Files / components still missing.
+    pub missing: Vec<String>,
+    /// Spec criteria not yet met.
+    pub unmet_criteria: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum GapStatus {
+    /// Feature is in the plan but nothing exists in the project.
+    NotStarted,
+    /// Partial implementation (0.0–1.0 progress).
+    Partial(f32),
+    /// Code exists but no tests.
+    Implemented,
+    /// Tests exist but some may fail.
+    Tested,
+    /// All tests pass — feature verified.
+    Verified,
+}
+
+impl GapStatus {
+    /// Numeric completion for sorting (0.0 = not started, 1.0 = done).
+    pub fn completion(&self) -> f32 {
+        match self {
+            GapStatus::NotStarted => 0.0,
+            GapStatus::Partial(p) => *p * 0.5,
+            GapStatus::Implemented => 0.6,
+            GapStatus::Tested => 0.8,
+            GapStatus::Verified => 1.0,
+        }
+    }
+}
+
+// ── Configuration ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SupervisorConfig {
+    pub max_iterations: u32,
+    pub agent_max_iter: u32,
+    pub token_budget: u64,
+}
+
+impl Default for SupervisorConfig {
+    fn default() -> Self {
+        Self {
+            max_iterations: 20,
+            agent_max_iter: 15,
+            token_budget: 2_000_000,
+        }
+    }
+}
+
+// ── User Request (persistence) ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserRequest {
     pub id: String,
     pub task: String,
     pub created_at: String,
-    pub phases_completed: Vec<PhaseRecord>,
-    pub state_history: Vec<StateVector>,
+    /// Feature node IDs that form the plan.
+    pub plan_features: Vec<String>,
+    pub completed_actions: Vec<CompletedAction>,
     pub status: RequestStatus,
     pub total_tokens: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PhaseRecord {
-    pub phase: Phase,
+pub struct CompletedAction {
+    pub action_label: String,
+    pub feature_id: Option<String>,
     pub iteration: u32,
     pub tokens_used: u64,
-    pub result: PhaseResult,
-    pub module_name: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PhaseResult {
-    Success,
-    Failure(String),
-    Partial(String),
+    pub success: bool,
+    pub summary: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -184,74 +180,706 @@ impl UserRequest {
         Self {
             id,
             task: task.into(),
-            created_at: chrono_now(),
-            phases_completed: Vec::new(),
-            state_history: Vec::new(),
+            created_at: now_string(),
+            plan_features: Vec::new(),
+            completed_actions: Vec::new(),
             status: RequestStatus::Active,
             total_tokens: 0,
         }
     }
 }
 
-// ── Prompt Templates ──
+// ═══════════════════════════════════════════════════════════════════════
+// Plan Building — decompose task → Feature nodes with Specs
+// ═══════════════════════════════════════════════════════════════════════
 
-/// Load and render a prompt template with variable substitution.
-pub fn load_prompt(prompts_dir: &Path, phase: &Phase, vars: &PromptVars) -> String {
-    let file = prompts_dir.join(phase.prompt_file());
-    let template = fs::read_to_string(&file).unwrap_or_else(|_| {
-        // Fallback: generate a basic prompt inline
-        format!(
-            "You are implementing phase '{}' for task: {}\n\nDo your best.",
-            phase.as_str(),
-            vars.task
-        )
+/// Build a prompt that asks the model to decompose a task into features.
+pub fn build_plan_prompt(task: &str, project_context: &str) -> String {
+    let mut prompt = String::with_capacity(2048);
+    prompt.push_str("# Task Decomposition\n\n");
+    prompt.push_str(&format!("## User Request\n{}\n\n", task));
+
+    if !project_context.is_empty() {
+        prompt.push_str("## Current Project State\n");
+        prompt.push_str(project_context);
+        prompt.push_str("\n\n");
+    }
+
+    prompt.push_str(
+r#"## Instructions
+Decompose this task into concrete features/modules. For each feature, specify:
+1. A unique ID (lowercase, hyphenated)
+2. A name
+3. Description of what it does
+4. Files it needs
+5. Dependencies on other features
+6. Acceptance criteria (how to know it's done)
+
+Output JSON:
+```json
+{
+  "features": [
+    {
+      "id": "feature-id",
+      "name": "Feature Name",
+      "description": "What this feature does",
+      "files": ["src/file1.ts", "src/file2.ts"],
+      "depends_on": ["other-feature-id"],
+      "criteria": ["Test X passes", "Output matches Y"]
+    }
+  ],
+  "scaffold": {
+    "files": ["package.json", "tsconfig.json"],
+    "dirs": ["src", "tests"]
+  }
+}
+```
+
+Be specific. Each feature should be implementable independently.
+"#);
+    prompt
+}
+
+/// Parse the model's plan response and populate the knowledge graph.
+/// Returns the list of feature node IDs created.
+pub fn parse_plan_into_graph(
+    response: &str,
+    task: &str,
+    graph: &mut KnowledgeGraph,
+) -> Vec<String> {
+    let json_str = extract_json(response);
+    let parsed: serde_json::Value = match serde_json::from_str(&json_str) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut feature_ids = Vec::new();
+
+    // Create intent node — root of the plan
+    let intent_id = format!("intent-{}", &uuid::Uuid::new_v4().to_string()[..8]);
+    let intent_node = Node::new(&intent_id, task, NodeKind::Concept)
+        .with_tag("intent")
+        .with_tag("plan-root")
+        .with_weight(1.0)
+        .with_description(format!("User request: {}", task));
+    let _ = graph.add_node(intent_node);
+
+    let features = match parsed.get("features").and_then(|f| f.as_array()) {
+        Some(f) => f.clone(),
+        None => return Vec::new(),
+    };
+
+    // First pass: create all feature nodes
+    for feat in &features {
+        let id = feat.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let name = feat.get("name").and_then(|v| v.as_str()).unwrap_or(id);
+        let desc = feat.get("description").and_then(|v| v.as_str()).unwrap_or("");
+
+        let node_id = format!("plan-{}", id);
+        let mut node = Node::new(&node_id, name, NodeKind::Feature)
+            .with_tag("plan")
+            .with_description(desc.to_string());
+
+        if let Some(files) = feat.get("files").and_then(|f| f.as_array()) {
+            let files_str: Vec<&str> = files.iter().filter_map(|v| v.as_str()).collect();
+            node = node.with_meta("files", &files_str.join(","));
+        }
+        if let Some(deps) = feat.get("depends_on").and_then(|d| d.as_array()) {
+            let deps_str: Vec<String> = deps
+                .iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| format!("plan-{}", s))
+                .collect();
+            node = node.with_meta("depends_on", &deps_str.join(","));
+        }
+
+        let _ = graph.add_node(node);
+        let _ = graph.add_edge(Edge::new(&intent_id, &node_id, EdgeRelation::Parent));
+
+        // Add specs from criteria
+        if let Some(criteria) = feat.get("criteria").and_then(|c| c.as_array()) {
+            let mut spec = Spec::new(&node_id, format!("{} spec", name));
+            for criterion in criteria {
+                if let Some(c) = criterion.as_str() {
+                    spec.add_criterion(c);
+                }
+            }
+            let _ = graph.add_spec(spec);
+        }
+
+        feature_ids.push(node_id);
+    }
+
+    // Second pass: add dependency edges (all nodes exist now)
+    for feat in &features {
+        let id = feat.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let node_id = format!("plan-{}", id);
+
+        if let Some(deps) = feat.get("depends_on").and_then(|d| d.as_array()) {
+            for dep in deps {
+                if let Some(dep_str) = dep.as_str() {
+                    let dep_node_id = format!("plan-{}", dep_str);
+                    if feature_ids.contains(&dep_node_id) {
+                        let existing = graph.edges_from(&node_id);
+                        let already = existing.iter().any(|e| {
+                            e.to == dep_node_id && e.relation == EdgeRelation::DependsOn
+                        });
+                        if !already {
+                            let _ = graph.add_edge(Edge::new(
+                                &node_id,
+                                &dep_node_id,
+                                EdgeRelation::DependsOn,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    feature_ids
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Gap Analysis — plan vs project → derive actions
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Analyze gaps between plan features and current project state.
+pub fn analyze_gaps(graph: &KnowledgeGraph, plan_features: &[String]) -> Vec<Gap> {
+    let mut gaps = Vec::new();
+
+    for feature_id in plan_features {
+        let feature_node = match graph.get_node(feature_id) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        let implementations = graph.related_by(feature_id, EdgeRelation::Implements);
+        let tests = graph.related_by(feature_id, EdgeRelation::Tests);
+        let specs = graph.specs_for(feature_id);
+
+        // Check meta status override (set by mark_feature_*)
+        let meta_status = feature_node.meta.get("status").map(|s| s.as_str());
+        if meta_status == Some("verified") {
+            gaps.push(Gap {
+                feature_id: feature_id.clone(),
+                feature_name: feature_node.name.clone(),
+                status: GapStatus::Verified,
+                missing: Vec::new(),
+                unmet_criteria: Vec::new(),
+            });
+            continue;
+        }
+
+        let expected_files: Vec<String> = feature_node
+            .meta
+            .get("files")
+            .map(|f| f.split(',').filter(|s| !s.is_empty()).map(String::from).collect())
+            .unwrap_or_default();
+
+        let all_criteria: Vec<String> = specs
+            .iter()
+            .flat_map(|s| s.acceptance_criteria.iter().cloned())
+            .collect();
+
+        let (status, missing, unmet) = if meta_status == Some("tested-failed") {
+            (GapStatus::Tested, Vec::new(), all_criteria.clone())
+        } else if meta_status == Some("implemented") || !implementations.is_empty() {
+            if tests.is_empty() && meta_status != Some("tested-failed") {
+                (GapStatus::Implemented, Vec::new(), all_criteria)
+            } else {
+                (GapStatus::Tested, Vec::new(), all_criteria)
+            }
+        } else {
+            // Check how many expected files exist via File nodes
+            let impl_paths: Vec<String> = implementations
+                .iter()
+                .filter_map(|n| n.meta.get("path").cloned())
+                .collect();
+
+            if impl_paths.is_empty() && expected_files.is_empty() {
+                // No expected files and no implementations → not started
+                (GapStatus::NotStarted, Vec::new(), all_criteria)
+            } else if impl_paths.is_empty() {
+                (GapStatus::NotStarted, expected_files.clone(), all_criteria)
+            } else {
+                let still_missing: Vec<String> = expected_files
+                    .iter()
+                    .filter(|f| !impl_paths.iter().any(|p| p.contains(f.as_str())))
+                    .cloned()
+                    .collect();
+                if still_missing.is_empty() {
+                    (GapStatus::Implemented, Vec::new(), all_criteria)
+                } else {
+                    let total = expected_files.len().max(1) as f32;
+                    let ratio = 1.0 - (still_missing.len() as f32 / total);
+                    (GapStatus::Partial(ratio), still_missing, all_criteria)
+                }
+            }
+        };
+
+        gaps.push(Gap {
+            feature_id: feature_id.clone(),
+            feature_name: feature_node.name.clone(),
+            status,
+            missing,
+            unmet_criteria: unmet,
+        });
+    }
+
+    // Sort by completion (least complete first)
+    gaps.sort_by(|a, b| {
+        a.status
+            .completion()
+            .partial_cmp(&b.status.completion())
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    render_template(&template, vars)
+    gaps
 }
 
-#[derive(Debug, Default)]
-pub struct PromptVars {
-    pub task: String,
-    pub plan: String,
-    pub module_name: String,
-    pub module_spec: String,
-    pub modules: String,
-    pub errors: String,
+/// Convert gaps into a prioritized, context-aware action queue.
+pub fn derive_actions(gaps: &[Gap], graph: &KnowledgeGraph) -> Vec<Action> {
+    let mut actions = Vec::new();
+
+    if gaps.is_empty() {
+        // No features → need to plan first
+        actions.push(Action {
+            kind: ActionKind::Plan,
+            priority: 1.0,
+            context_nodes: Vec::new(),
+            roska_depth: Depth::Overview,
+            estimated_tokens: 2000,
+        });
+        return actions;
+    }
+
+    // If everything is already scaffolded/not-started, we may need scaffold first
+    let all_not_started = gaps.iter().all(|g| g.status == GapStatus::NotStarted);
+    if all_not_started {
+        actions.push(Action {
+            kind: ActionKind::Scaffold,
+            priority: 0.95,
+            context_nodes: gaps.iter().map(|g| g.feature_id.clone()).collect(),
+            roska_depth: Depth::Overview,
+            estimated_tokens: 3000,
+        });
+    }
+
+    for gap in gaps {
+        if gap.status == GapStatus::Verified {
+            continue;
+        }
+
+        let action = match &gap.status {
+            GapStatus::NotStarted | GapStatus::Partial(_) => {
+                let deps_met = check_deps_met(&gap.feature_id, gaps, graph);
+                Action {
+                    kind: ActionKind::Implement {
+                        feature_id: gap.feature_id.clone(),
+                        feature_name: gap.feature_name.clone(),
+                    },
+                    priority: if deps_met { 0.9 } else { 0.3 },
+                    context_nodes: feature_context_nodes(&gap.feature_id, graph),
+                    roska_depth: Depth::Detail,
+                    estimated_tokens: 8000,
+                }
+            }
+            GapStatus::Implemented => Action {
+                kind: ActionKind::Test {
+                    feature_id: gap.feature_id.clone(),
+                    feature_name: gap.feature_name.clone(),
+                },
+                priority: 0.7,
+                context_nodes: feature_context_nodes(&gap.feature_id, graph),
+                roska_depth: Depth::Structure,
+                estimated_tokens: 5000,
+            },
+            GapStatus::Tested => Action {
+                kind: ActionKind::Fix {
+                    feature_id: gap.feature_id.clone(),
+                    errors: gap.unmet_criteria.clone(),
+                },
+                priority: 0.8,
+                context_nodes: feature_context_nodes(&gap.feature_id, graph),
+                roska_depth: Depth::Body,
+                estimated_tokens: 6000,
+            },
+            GapStatus::Verified => unreachable!(),
+        };
+
+        actions.push(action);
+    }
+
+    // Integration: if all features are at least implemented
+    let all_impl = gaps.iter().all(|g| {
+        matches!(
+            g.status,
+            GapStatus::Implemented | GapStatus::Tested | GapStatus::Verified
+        )
+    });
+    if all_impl && gaps.len() > 1 {
+        actions.push(Action {
+            kind: ActionKind::Integrate,
+            priority: 0.6,
+            context_nodes: gaps.iter().map(|g| g.feature_id.clone()).collect(),
+            roska_depth: Depth::Structure,
+            estimated_tokens: 5000,
+        });
+    }
+
+    // Verification: if everything is tested
+    let all_tested = gaps
+        .iter()
+        .all(|g| matches!(g.status, GapStatus::Tested | GapStatus::Verified));
+    if all_tested {
+        actions.push(Action {
+            kind: ActionKind::Verify,
+            priority: 0.5,
+            context_nodes: gaps.iter().map(|g| g.feature_id.clone()).collect(),
+            roska_depth: Depth::Overview,
+            estimated_tokens: 3000,
+        });
+    }
+
+    // Sort highest priority first
+    actions.sort_by(|a, b| {
+        b.priority
+            .partial_cmp(&a.priority)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    actions
 }
 
-fn render_template(template: &str, vars: &PromptVars) -> String {
-    template
-        .replace("{{task}}", &vars.task)
-        .replace("{{plan}}", &vars.plan)
-        .replace("{{module_name}}", &vars.module_name)
-        .replace("{{module_spec}}", &vars.module_spec)
-        .replace("{{modules}}", &vars.modules)
-        .replace("{{errors}}", &vars.errors)
+/// Check if a feature's dependencies are at least Implemented.
+fn check_deps_met(feature_id: &str, gaps: &[Gap], graph: &KnowledgeGraph) -> bool {
+    let deps_str = graph
+        .get_node(feature_id)
+        .and_then(|n| n.meta.get("depends_on").cloned())
+        .unwrap_or_default();
+
+    if deps_str.is_empty() {
+        return true;
+    }
+
+    for dep_id in deps_str.split(',').filter(|s| !s.is_empty()) {
+        if let Some(dep_gap) = gaps.iter().find(|g| g.feature_id == dep_id) {
+            if matches!(dep_gap.status, GapStatus::NotStarted | GapStatus::Partial(_)) {
+                return false;
+            }
+        }
+    }
+    true
 }
 
-// ── Persistence ──
+/// Collect relevant graph node IDs for a feature's prompt context.
+fn feature_context_nodes(feature_id: &str, graph: &KnowledgeGraph) -> Vec<String> {
+    let mut nodes = vec![feature_id.to_string()];
 
-/// Save a user request to disk.
+    // Parent (intent)
+    for parent in graph.parents(feature_id) {
+        nodes.push(parent.id.clone());
+    }
+    // Dependencies
+    if let Some(node) = graph.get_node(feature_id) {
+        if let Some(deps) = node.meta.get("depends_on") {
+            for dep in deps.split(',').filter(|s| !s.is_empty()) {
+                nodes.push(dep.to_string());
+            }
+        }
+    }
+    // Existing implementation nodes
+    for impl_node in graph.related_by(feature_id, EdgeRelation::Implements) {
+        nodes.push(impl_node.id.clone());
+    }
+
+    nodes
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Dynamic Prompt Composition — from graph context, not templates
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Compose a prompt for an action using graph context and roska analysis.
+/// This replaces the old static template files with dynamic composition.
+pub fn compose_prompt(
+    action: &Action,
+    task: &str,
+    graph: &KnowledgeGraph,
+    roska_context: &str,
+) -> String {
+    let mut prompt = String::with_capacity(4096);
+
+    // 1. Action-specific header with instructions
+    prompt.push_str(&action_header(action, task));
+
+    // 2. Targeted graph context (only relevant nodes)
+    if !action.context_nodes.is_empty() {
+        prompt.push_str("\n## Context\n\n");
+        for node_id in &action.context_nodes {
+            let ctx = graph.render_context(node_id, 1);
+            if !ctx.is_empty() && ctx.len() > 20 {
+                prompt.push_str(&ctx);
+                prompt.push('\n');
+            }
+        }
+    }
+
+    // 3. Specs / criteria for the targeted feature
+    match &action.kind {
+        ActionKind::Implement { feature_id, .. }
+        | ActionKind::Test { feature_id, .. }
+        | ActionKind::Fix { feature_id, .. } => {
+            let specs = graph.specs_for(feature_id);
+            if !specs.is_empty() {
+                prompt.push_str("## Acceptance Criteria\n");
+                for spec in &specs {
+                    for criterion in &spec.acceptance_criteria {
+                        prompt.push_str(&format!("- [ ] {}\n", criterion));
+                    }
+                }
+                prompt.push('\n');
+            }
+
+            let decisions = graph.decisions_for(feature_id);
+            if !decisions.is_empty() {
+                prompt.push_str("## Decisions\n");
+                for d in &decisions {
+                    prompt.push_str(&format!("- {}: {}\n", d.title, d.reasoning));
+                }
+                prompt.push('\n');
+            }
+        }
+        _ => {}
+    }
+
+    // 4. Roska project analysis (depth-controlled, token-efficient)
+    if !roska_context.is_empty() {
+        prompt.push_str("## Project Analysis (roska)\n");
+        prompt.push_str(roska_context);
+        prompt.push_str("\n\n");
+    }
+
+    // 5. Rules (always, minimal)
+    prompt.push_str(
+        "## Rules\n\
+         - You MUST use write_file to create/modify files\n\
+         - Do NOT stop at analysis — IMPLEMENT the solution\n\
+         - Keep working until this action is complete\n\
+         - Report what you created/changed when done\n",
+    );
+
+    prompt
+}
+
+/// Generate the instruction header for an action kind.
+fn action_header(action: &Action, task: &str) -> String {
+    match &action.kind {
+        ActionKind::Plan => format!(
+            "# Plan: Decompose Task\n\n\
+             User request: {}\n\n\
+             Analyze the project and decompose the task into features/modules.\n\
+             Output a structured plan as JSON.\n",
+            task
+        ),
+        ActionKind::Scan { depth } => format!(
+            "# Scan: Analyze Project at depth {}\n\n\
+             Inspect the workspace and report its current state.\n",
+            depth
+        ),
+        ActionKind::Scaffold => format!(
+            "# Scaffold: Create Project Structure\n\n\
+             User request: {}\n\n\
+             Create the project skeleton: config files, directories, entry points.\n\
+             Set up the foundation so each feature can be built independently.\n",
+            task
+        ),
+        ActionKind::Implement { feature_name, .. } => format!(
+            "# Implement: {}\n\n\
+             User request: {}\n\n\
+             Implement this feature completely. Create all necessary source files.\n\
+             Follow the specs and criteria below. Build working code.\n",
+            feature_name, task
+        ),
+        ActionKind::Test { feature_name, .. } => format!(
+            "# Test: {}\n\n\
+             Write comprehensive tests for this feature.\n\
+             Cover: happy path, edge cases, error cases.\n\
+             Run the tests and report results.\n",
+            feature_name
+        ),
+        ActionKind::Fix { errors, .. } => {
+            let errs = if errors.is_empty() {
+                "See failing tests".to_string()
+            } else {
+                errors.join("\n- ")
+            };
+            format!(
+                "# Fix: Resolve Failures\n\n\
+                 User request: {}\n\n\
+                 Fix the following issues:\n- {}\n\n\
+                 Fix ONE issue at a time. Re-run tests after each fix.\n",
+                task, errs
+            )
+        }
+        ActionKind::Integrate => format!(
+            "# Integrate: Wire Everything Together\n\n\
+             User request: {}\n\n\
+             Wire all modules into a working system.\n\
+             Create/update the main entry point and CLI.\n\
+             Verify end-to-end with a realistic test.\n",
+            task
+        ),
+        ActionKind::Verify => format!(
+            "# Verify: Final Check\n\n\
+             User request: {}\n\n\
+             Verify the complete system:\n\
+             1. Run all tests\n\
+             2. Test with realistic inputs\n\
+             3. Check error handling\n\
+             4. Confirm all acceptance criteria are met\n\n\
+             Output a JSON summary: {{\"verified\": true/false, \"summary\": \"...\"}}\n",
+            task
+        ),
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Project Graph Updates — track what agents produce
+// ═══════════════════════════════════════════════════════════════════════
+
+/// After an agent runs, update the project graph with files it created.
+pub fn update_project_graph(
+    graph: &mut KnowledgeGraph,
+    feature_id: &str,
+    files_written: &[String],
+    test_files: &[String],
+) {
+    for file_path in files_written {
+        let file_name = Path::new(file_path)
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| file_path.clone());
+
+        let file_id = format!("file-{}", sanitize_id(&file_name));
+        let node = Node::new(&file_id, &file_name, NodeKind::File)
+            .with_tag("project")
+            .with_meta("path", file_path)
+            .with_description(format!("Source file: {}", file_path));
+        let _ = graph.add_node(node);
+        let _ = graph.add_edge(Edge::new(&file_id, feature_id, EdgeRelation::Implements));
+    }
+
+    for test_path in test_files {
+        let test_name = Path::new(test_path)
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| test_path.clone());
+
+        let test_id = format!("test-{}", sanitize_id(&test_name));
+        let node = Node::new(&test_id, &test_name, NodeKind::File)
+            .with_tag("test")
+            .with_tag("project")
+            .with_meta("path", test_path)
+            .with_description(format!("Test file: {}", test_path));
+        let _ = graph.add_node(node);
+        let _ = graph.add_edge(Edge::new(&test_id, feature_id, EdgeRelation::Tests));
+    }
+}
+
+/// Mark a feature as implemented in the graph.
+pub fn mark_feature_implemented(graph: &mut KnowledgeGraph, feature_id: &str) {
+    if let Some(node) = graph.get_node_mut(feature_id) {
+        node.meta.insert("status".to_string(), "implemented".to_string());
+        node.touch();
+    }
+}
+
+/// Mark a feature as tested (pass/fail) in the graph.
+pub fn mark_feature_tested(graph: &mut KnowledgeGraph, feature_id: &str, passed: bool) {
+    if let Some(node) = graph.get_node_mut(feature_id) {
+        let status = if passed { "verified" } else { "tested-failed" };
+        node.meta.insert("status".to_string(), status.to_string());
+        node.touch();
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Status Rendering
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Render a compact plan status summary (for logging / user display).
+pub fn render_plan_status(graph: &KnowledgeGraph, plan_features: &[String]) -> String {
+    let gaps = analyze_gaps(graph, plan_features);
+    let total = gaps.len();
+    let verified = gaps.iter().filter(|g| g.status == GapStatus::Verified).count();
+    let completion: f32 = if total > 0 {
+        gaps.iter().map(|g| g.status.completion()).sum::<f32>() / total as f32
+    } else {
+        0.0
+    };
+
+    let mut out = format!(
+        "Plan: {}/{} features complete ({:.0}%)\n",
+        verified,
+        total,
+        completion * 100.0
+    );
+    for gap in &gaps {
+        let icon = match &gap.status {
+            GapStatus::NotStarted => "[ ]",
+            GapStatus::Partial(p) => {
+                if *p > 0.5 { "[~]" } else { "[.]" }
+            }
+            GapStatus::Implemented => "[*]",
+            GapStatus::Tested => "[T]",
+            GapStatus::Verified => "[V]",
+        };
+        out.push_str(&format!("  {} {}", icon, gap.feature_name));
+        if !gap.missing.is_empty() {
+            out.push_str(&format!(" (missing: {})", gap.missing.len()));
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Check if all plan features are verified.
+pub fn is_plan_complete(graph: &KnowledgeGraph, plan_features: &[String]) -> bool {
+    if plan_features.is_empty() {
+        return false;
+    }
+    let gaps = analyze_gaps(graph, plan_features);
+    gaps.iter().all(|g| g.status == GapStatus::Verified)
+}
+
+/// Find existing plan features in the graph (for resuming).
+pub fn find_plan_features(graph: &KnowledgeGraph) -> Vec<String> {
+    let query = NodeQuery::new().kind(NodeKind::Feature).tag("plan");
+    graph.find_nodes(&query).iter().map(|n| n.id.clone()).collect()
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Persistence
+// ═══════════════════════════════════════════════════════════════════════
+
 pub fn save_request(workspace: &Path, request: &UserRequest) {
-    let requests_dir = workspace.join(".agent").join("memory").join("requests");
-    fs::create_dir_all(&requests_dir).ok();
-
-    let file = requests_dir.join(format!("{}.yaml", request.id));
+    let dir = workspace.join(".agent").join("memory").join("requests");
+    fs::create_dir_all(&dir).ok();
+    let file = dir.join(format!("{}.yaml", request.id));
     if let Ok(yaml) = serde_yaml::to_string(request) {
         fs::write(&file, yaml).ok();
     }
 }
 
-/// Load the most recent active request, if any.
 pub fn load_active_request(workspace: &Path) -> Option<UserRequest> {
-    let requests_dir = workspace.join(".agent").join("memory").join("requests");
-    if !requests_dir.exists() {
+    let dir = workspace.join(".agent").join("memory").join("requests");
+    if !dir.exists() {
         return None;
     }
-
     let mut requests: Vec<UserRequest> = Vec::new();
-    if let Ok(entries) = fs::read_dir(&requests_dir) {
+    if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
             if entry.path().extension().map_or(false, |e| e == "yaml") {
                 if let Ok(content) = fs::read_to_string(entry.path()) {
@@ -264,173 +892,44 @@ pub fn load_active_request(workspace: &Path) -> Option<UserRequest> {
             }
         }
     }
-
-    // Return most recent active request
     requests.into_iter().last()
 }
 
-// ── Supervisor Config ──
+// ═══════════════════════════════════════════════════════════════════════
+// Utilities
+// ═══════════════════════════════════════════════════════════════════════
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SupervisorConfig {
-    /// Max supervisor iterations (each iteration = one agent dispatch)
-    pub max_iterations: u32,
-    /// Max agent iterations per phase dispatch
-    pub agent_max_iter: u32,
-    /// Total token budget across all phases
-    pub token_budget: u64,
-    /// Whether to run modules in parallel (future)
-    pub parallel_modules: bool,
-    /// Path to prompts directory
-    pub prompts_dir: PathBuf,
-}
-
-impl Default for SupervisorConfig {
-    fn default() -> Self {
-        Self {
-            max_iterations: 20,
-            agent_max_iter: 15,
-            token_budget: 2_000_000,
-            parallel_modules: false,
-            prompts_dir: PathBuf::from("prompts"),
+fn extract_json(response: &str) -> String {
+    // Try ```json block first
+    if let Some(start) = response.find("```json") {
+        let after = &response[start + 7..];
+        if let Some(end) = after.find("```") {
+            return after[..end].trim().to_string();
         }
     }
-}
-
-// ── State Evaluation Parser ──
-
-/// Parse the model's evaluation response into a StateVector.
-pub fn parse_state_response(response: &str) -> Option<StateVector> {
-    // Try to find JSON in the response
-    let json_start = response.find('{')?;
-    let json_end = response.rfind('}')? + 1;
-    let json_str = &response[json_start..json_end];
-
-    let parsed: serde_json::Value = serde_json::from_str(json_str).ok()?;
-
-    let state_arr = parsed.get("state")?.as_array()?;
-    if state_arr.len() != 10 {
-        return None;
+    // Try raw JSON
+    if let Some(start) = response.find('{') {
+        if let Some(end) = response.rfind('}') {
+            return response[start..=end].to_string();
+        }
     }
-
-    let mut bits = [0u8; 10];
-    for (i, val) in state_arr.iter().enumerate() {
-        bits[i] = val.as_u64().unwrap_or(0) as u8;
-    }
-
-    Some(StateVector {
-        bits,
-        summary: parsed.get("summary")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
-        modules: parsed.get("modules")
-            .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-            .unwrap_or_default(),
-        errors: parsed.get("errors")
-            .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-            .unwrap_or_default(),
-        next_priority: parsed.get("next_priority")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
-    })
+    response.to_string()
 }
 
-// ── Module Tracking ──
-
-/// Track which modules have been implemented, tested, etc.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModuleTracker {
-    pub modules: Vec<ModuleState>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModuleState {
-    pub name: String,
-    pub spec: String,
-    pub implemented: bool,
-    pub tested: bool,
-    pub tests_pass: bool,
-}
-
-impl ModuleTracker {
-    pub fn new() -> Self {
-        Self { modules: Vec::new() }
-    }
-
-    pub fn from_state(state: &StateVector, plan_content: &str) -> Self {
-        let modules: Vec<ModuleState> = state.modules.iter().map(|name| {
-            // Try to extract spec from plan
-            let spec = extract_module_spec(plan_content, name);
-            ModuleState {
-                name: name.clone(),
-                spec,
-                implemented: false,
-                tested: false,
-                tests_pass: false,
+fn sanitize_id(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
             }
-        }).collect();
-
-        Self { modules }
-    }
-
-    pub fn next_unimplemented(&self) -> Option<&ModuleState> {
-        self.modules.iter().find(|m| !m.implemented)
-    }
-
-    pub fn next_untested(&self) -> Option<&ModuleState> {
-        self.modules.iter().find(|m| m.implemented && !m.tested)
-    }
-
-    pub fn all_implemented(&self) -> bool {
-        self.modules.iter().all(|m| m.implemented)
-    }
-
-    pub fn all_tested(&self) -> bool {
-        self.modules.iter().all(|m| m.tested && m.tests_pass)
-    }
-
-    pub fn mark_implemented(&mut self, name: &str) {
-        if let Some(m) = self.modules.iter_mut().find(|m| m.name == name) {
-            m.implemented = true;
-        }
-    }
-
-    pub fn mark_tested(&mut self, name: &str, pass: bool) {
-        if let Some(m) = self.modules.iter_mut().find(|m| m.name == name) {
-            m.tested = true;
-            m.tests_pass = pass;
-        }
-    }
+        })
+        .collect::<String>()
+        .to_lowercase()
 }
 
-fn extract_module_spec(plan: &str, module_name: &str) -> String {
-    // Simple extraction: find "### Module: {name}" and grab until next "###"
-    let marker = format!("### Module: {}", module_name);
-    if let Some(start) = plan.find(&marker) {
-        let after = &plan[start + marker.len()..];
-        let end = after.find("### Module:").unwrap_or(after.len());
-        after[..end].trim().to_string()
-    } else {
-        // Try alternate format: "## {name}"
-        let marker2 = format!("## {}", module_name);
-        if let Some(start) = plan.find(&marker2) {
-            let after = &plan[start + marker2.len()..];
-            let end = after.find("\n## ").unwrap_or(after.len());
-            after[..end].trim().to_string()
-        } else {
-            format!("Module: {}", module_name)
-        }
-    }
-}
-
-// ── Utilities ──
-
-fn chrono_now() -> String {
-    // Simple timestamp without chrono dependency
+fn now_string() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -439,110 +938,273 @@ fn chrono_now() -> String {
     format!("{}", secs)
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Tests
+// ═══════════════════════════════════════════════════════════════════════
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_state_vector_empty() {
-        let state = StateVector::empty();
-        assert!(!state.is_complete());
-        assert_eq!(state.completion_ratio(), 0.0);
-        assert_eq!(state.next_phase(), Phase::Plan);
+    fn sample_plan_graph() -> (KnowledgeGraph, Vec<String>) {
+        let mut graph = KnowledgeGraph::new();
+
+        let intent = Node::new("intent-1", "Build a TS transpiler", NodeKind::Concept)
+            .with_tag("intent")
+            .with_tag("plan-root");
+        graph.add_node(intent).unwrap();
+
+        let lexer = Node::new("plan-lexer", "Lexer", NodeKind::Feature)
+            .with_tag("plan")
+            .with_meta("files", "src/lexer.ts")
+            .with_description("Tokenize TypeScript source code");
+        graph.add_node(lexer).unwrap();
+
+        let parser = Node::new("plan-parser", "Parser", NodeKind::Feature)
+            .with_tag("plan")
+            .with_meta("files", "src/parser.ts,src/ast.ts")
+            .with_meta("depends_on", "plan-lexer")
+            .with_description("Parse tokens into AST");
+        graph.add_node(parser).unwrap();
+
+        let codegen = Node::new("plan-codegen", "Code Generator", NodeKind::Feature)
+            .with_tag("plan")
+            .with_meta("files", "src/codegen.ts")
+            .with_meta("depends_on", "plan-parser")
+            .with_description("Generate JavaScript from AST");
+        graph.add_node(codegen).unwrap();
+
+        graph.add_edge(Edge::new("intent-1", "plan-lexer", EdgeRelation::Parent)).unwrap();
+        graph.add_edge(Edge::new("intent-1", "plan-parser", EdgeRelation::Parent)).unwrap();
+        graph.add_edge(Edge::new("intent-1", "plan-codegen", EdgeRelation::Parent)).unwrap();
+        graph.add_edge(Edge::new("plan-parser", "plan-lexer", EdgeRelation::DependsOn)).unwrap();
+        graph.add_edge(Edge::new("plan-codegen", "plan-parser", EdgeRelation::DependsOn)).unwrap();
+
+        let mut lexer_spec = Spec::new("plan-lexer", "Lexer spec");
+        lexer_spec.add_criterion("Tokenizes identifiers");
+        lexer_spec.add_criterion("Handles string literals");
+        graph.add_spec(lexer_spec).unwrap();
+
+        let features = vec![
+            "plan-lexer".to_string(),
+            "plan-parser".to_string(),
+            "plan-codegen".to_string(),
+        ];
+
+        (graph, features)
     }
 
     #[test]
-    fn test_state_vector_phases() {
-        let mut state = StateVector::empty();
-        state.bits[0] = 1; // has_plan
-        assert_eq!(state.next_phase(), Phase::Structure);
-
-        state.bits[1] = 1; // has_structure
-        assert_eq!(state.next_phase(), Phase::Plan); // modules not defined
-
-        state.bits[2] = 1; // modules_defined
-        assert_eq!(state.next_phase(), Phase::Implement);
-
-        state.bits[3] = 1; // module_impl
-        state.bits[4] = 1; // all_modules_impl
-        assert_eq!(state.next_phase(), Phase::Test);
-
-        state.bits[5] = 1; // has_tests
-        assert_eq!(state.next_phase(), Phase::Debug); // tests don't pass yet
-
-        state.bits[6] = 1; // tests_pass
-        assert_eq!(state.next_phase(), Phase::Integrate);
-
-        state.bits[7] = 1; // has_integration
-        assert_eq!(state.next_phase(), Phase::Debug); // integration doesn't pass
-
-        state.bits[8] = 1; // integration_pass
-        assert_eq!(state.next_phase(), Phase::Verify);
-
-        state.bits[9] = 1; // verified
-        assert_eq!(state.next_phase(), Phase::Done);
-        assert!(state.is_complete());
+    fn test_gap_analysis_empty_project() {
+        let (graph, features) = sample_plan_graph();
+        let gaps = analyze_gaps(&graph, &features);
+        assert_eq!(gaps.len(), 3);
+        assert!(gaps.iter().all(|g| g.status == GapStatus::NotStarted));
     }
 
     #[test]
-    fn test_parse_state_response() {
-        let response = r#"
-            Here is the evaluation:
-            {
-                "state": [1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
-                "summary": "Project has plan and structure but no modules",
-                "modules": ["lexer", "parser", "codegen"],
-                "errors": [],
-                "next_priority": "Define module specs"
-            }
-        "#;
-
-        let state = parse_state_response(response).unwrap();
-        assert_eq!(state.bits, [1, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
-        assert_eq!(state.modules, vec!["lexer", "parser", "codegen"]);
-        assert!(state.has_plan());
-        assert!(state.has_structure());
-        assert!(!state.modules_defined());
+    fn test_derive_actions_needs_plan() {
+        let graph = KnowledgeGraph::new();
+        let actions = derive_actions(&[], &graph);
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(actions[0].kind, ActionKind::Plan));
     }
 
     #[test]
-    fn test_module_tracker() {
-        let mut tracker = ModuleTracker::new();
-        tracker.modules.push(ModuleState {
-            name: "lexer".to_string(),
-            spec: "Tokenize input".to_string(),
-            implemented: false,
-            tested: false,
-            tests_pass: false,
+    fn test_derive_actions_from_gaps() {
+        let (graph, features) = sample_plan_graph();
+        let gaps = analyze_gaps(&graph, &features);
+        let actions = derive_actions(&gaps, &graph);
+
+        assert!(!actions.is_empty());
+        assert!(actions.iter().any(|a| matches!(a.kind, ActionKind::Scaffold)));
+        assert!(actions.iter().any(|a| matches!(a.kind, ActionKind::Implement { .. })));
+    }
+
+    #[test]
+    fn test_dependency_priority() {
+        let (graph, features) = sample_plan_graph();
+        let gaps = analyze_gaps(&graph, &features);
+        let actions = derive_actions(&gaps, &graph);
+
+        let lexer_action = actions.iter().find(|a| {
+            matches!(&a.kind, ActionKind::Implement { feature_id, .. } if feature_id == "plan-lexer")
         });
-        tracker.modules.push(ModuleState {
-            name: "parser".to_string(),
-            spec: "Build AST".to_string(),
-            implemented: false,
-            tested: false,
-            tests_pass: false,
+        let parser_action = actions.iter().find(|a| {
+            matches!(&a.kind, ActionKind::Implement { feature_id, .. } if feature_id == "plan-parser")
         });
 
-        assert_eq!(tracker.next_unimplemented().unwrap().name, "lexer");
-        assert!(!tracker.all_implemented());
-
-        tracker.mark_implemented("lexer");
-        assert_eq!(tracker.next_unimplemented().unwrap().name, "parser");
-
-        tracker.mark_implemented("parser");
-        assert!(tracker.all_implemented());
+        if let (Some(l), Some(p)) = (lexer_action, parser_action) {
+            assert!(l.priority > p.priority, "Lexer (no deps) should have higher priority than parser");
+        }
     }
 
     #[test]
-    fn test_prompt_render() {
-        let vars = PromptVars {
-            task: "Build a compiler".to_string(),
-            module_name: "lexer".to_string(),
-            module_spec: "Tokenize input".to_string(),
-            ..Default::default()
+    fn test_compose_prompt_includes_context() {
+        let (graph, _) = sample_plan_graph();
+        let action = Action {
+            kind: ActionKind::Implement {
+                feature_id: "plan-lexer".to_string(),
+                feature_name: "Lexer".to_string(),
+            },
+            priority: 0.9,
+            context_nodes: vec!["plan-lexer".to_string()],
+            roska_depth: Depth::Detail,
+            estimated_tokens: 8000,
         };
-        let template = "Task: {{task}}\nModule: {{module_name}}\nSpec: {{module_spec}}";
-        let rendered = render_template(template, &vars);
-        assert_eq!(rendered, "Task: Build a compiler\nModule: lexer\nSpec: Tokenize input");
+
+        let prompt = compose_prompt(&action, "Build a TS transpiler", &graph, "");
+        assert!(prompt.contains("Implement: Lexer"));
+        assert!(prompt.contains("Build a TS transpiler"));
+        assert!(prompt.contains("Tokenizes identifiers"));
+    }
+
+    #[test]
+    fn test_plan_status_rendering() {
+        let (graph, features) = sample_plan_graph();
+        let status = render_plan_status(&graph, &features);
+        assert!(status.contains("0/3 features complete"));
+        assert!(status.contains("[ ] Lexer"));
+    }
+
+    #[test]
+    fn test_update_project_graph() {
+        let (mut graph, _) = sample_plan_graph();
+        update_project_graph(
+            &mut graph,
+            "plan-lexer",
+            &["src/lexer.ts".to_string()],
+            &[],
+        );
+
+        let file_node = graph.get_node("file-lexer-ts");
+        assert!(file_node.is_some());
+
+        let impls = graph.related_by("plan-lexer", EdgeRelation::Implements);
+        // The edge goes file→feature, so check via edges_to
+        let edges = graph.edges_to("plan-lexer");
+        assert!(edges.iter().any(|e| e.relation == EdgeRelation::Implements));
+    }
+
+    #[test]
+    fn test_mark_feature_lifecycle() {
+        let (mut graph, features) = sample_plan_graph();
+
+        // Initially not started
+        let gaps = analyze_gaps(&graph, &features);
+        assert_eq!(gaps[0].status, GapStatus::NotStarted);
+
+        // Mark implemented
+        mark_feature_implemented(&mut graph, "plan-lexer");
+        let gaps = analyze_gaps(&graph, &features);
+        let lexer = gaps.iter().find(|g| g.feature_id == "plan-lexer").unwrap();
+        assert_eq!(lexer.status, GapStatus::Implemented);
+
+        // Mark tested (pass)
+        mark_feature_tested(&mut graph, "plan-lexer", true);
+        let gaps = analyze_gaps(&graph, &features);
+        let lexer = gaps.iter().find(|g| g.feature_id == "plan-lexer").unwrap();
+        assert_eq!(lexer.status, GapStatus::Verified);
+    }
+
+    #[test]
+    fn test_is_plan_complete() {
+        let (mut graph, features) = sample_plan_graph();
+        assert!(!is_plan_complete(&graph, &features));
+        assert!(!is_plan_complete(&graph, &[]));
+
+        for f in &features {
+            mark_feature_tested(&mut graph, f, true);
+        }
+        assert!(is_plan_complete(&graph, &features));
+    }
+
+    #[test]
+    fn test_find_plan_features() {
+        let (graph, features) = sample_plan_graph();
+        let found = find_plan_features(&graph);
+        assert_eq!(found.len(), features.len());
+        for f in &features {
+            assert!(found.contains(f));
+        }
+    }
+
+    #[test]
+    fn test_extract_json() {
+        let md = "Here is the plan:\n```json\n{\"features\": []}\n```\nDone.";
+        assert_eq!(extract_json(md), "{\"features\": []}");
+
+        let raw = "Some text {\"key\": \"value\"} more text";
+        assert_eq!(extract_json(raw), "{\"key\": \"value\"}");
+    }
+
+    #[test]
+    fn test_parse_plan_into_graph() {
+        let mut graph = KnowledgeGraph::new();
+        let response = r#"```json
+{
+    "features": [
+        {
+            "id": "lexer",
+            "name": "Lexer Module",
+            "description": "Tokenize source code",
+            "files": ["src/lexer.ts"],
+            "depends_on": [],
+            "criteria": ["Handles keywords", "Handles strings"]
+        },
+        {
+            "id": "parser",
+            "name": "Parser Module",
+            "description": "Build AST from tokens",
+            "files": ["src/parser.ts"],
+            "depends_on": ["lexer"],
+            "criteria": ["Parses expressions"]
+        }
+    ],
+    "scaffold": {
+        "files": ["package.json"],
+        "dirs": ["src"]
+    }
+}
+```"#;
+
+        let features = parse_plan_into_graph(response, "Build transpiler", &mut graph);
+        assert_eq!(features.len(), 2);
+        assert!(graph.get_node("plan-lexer").is_some());
+        assert!(graph.get_node("plan-parser").is_some());
+
+        let specs = graph.specs_for("plan-lexer");
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].acceptance_criteria.len(), 2);
+
+        // Check dependency edge
+        let deps = graph.edges_from("plan-parser");
+        assert!(deps.iter().any(|e| e.to == "plan-lexer" && e.relation == EdgeRelation::DependsOn));
+    }
+
+    #[test]
+    fn test_actions_after_partial_impl() {
+        let (mut graph, features) = sample_plan_graph();
+
+        // Lexer implemented, parser and codegen not started
+        mark_feature_implemented(&mut graph, "plan-lexer");
+
+        let gaps = analyze_gaps(&graph, &features);
+        let actions = derive_actions(&gaps, &graph);
+
+        // Should NOT have scaffold (not all NotStarted)
+        assert!(!actions.iter().any(|a| matches!(a.kind, ActionKind::Scaffold)));
+
+        // Lexer should have Test action
+        assert!(actions.iter().any(|a| {
+            matches!(&a.kind, ActionKind::Test { feature_id, .. } if feature_id == "plan-lexer")
+        }));
+
+        // Parser should have Implement with higher priority now (deps met)
+        let parser_action = actions.iter().find(|a| {
+            matches!(&a.kind, ActionKind::Implement { feature_id, .. } if feature_id == "plan-parser")
+        });
+        assert!(parser_action.is_some());
+        assert!(parser_action.unwrap().priority > 0.5); // deps met → high priority
     }
 }

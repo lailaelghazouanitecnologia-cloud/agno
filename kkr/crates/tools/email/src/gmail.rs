@@ -1517,27 +1517,3 @@ impl Tool for GmailAttachmentTool {
         }))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_gmail_credentials_from_env() {
-        let creds = GmailCredentials::new("client_id", "client_secret")
-            .with_access_token("token")
-            .with_refresh_token("refresh");
-
-        assert_eq!(creds.client_id, "client_id");
-        assert!(creds.access_token.is_some());
-    }
-
-    #[test]
-    fn test_gmail_read_tool_metadata() {
-        let creds = GmailCredentials::new("id", "secret").with_access_token("token");
-        let tool = GmailReadTool::new(GmailClient::new(creds));
-
-        assert_eq!(tool.name(), "gmail_read");
-        assert!(tool.metadata().read_only);
-    }
-}

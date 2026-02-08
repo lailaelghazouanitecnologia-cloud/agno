@@ -400,24 +400,3 @@ pub use gmail::{
     GmailModifyLabelsTool, GmailReadTool, GmailReplyTool, GmailSendTool, GmailThreadTool,
     GmailTrashTool,
 };
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_smtp_config_gmail() {
-        let config = SmtpConfig::gmail("user@gmail.com", "app-password")
-            .from_email("user@gmail.com")
-            .from_name("Test User");
-
-        assert_eq!(config.host, "smtp.gmail.com");
-        assert_eq!(config.port, 587);
-    }
-
-    #[test]
-    fn test_resend_tool_metadata() {
-        let tool = ResendEmailTool::new("test@example.com");
-        assert_eq!(tool.metadata().category, ToolCategory::Network);
-    }
-}

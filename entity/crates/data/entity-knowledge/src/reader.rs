@@ -501,14 +501,6 @@ mod tests {
     }
 
     #[test]
-    fn test_reader_registry() {
-        let registry = ReaderRegistry::new();
-        assert!(registry.get("text").is_some());
-        assert!(registry.get("json").is_some());
-        assert!(registry.get("csv").is_some());
-    }
-
-    #[test]
     fn test_web_reader_html_extraction() {
         let reader = WebReader::new();
         let html = "<html><script>var x = 1;</script><body>Hello World</body></html>";

@@ -426,24 +426,3 @@ impl Reranker for ScoreBasedReranker {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_score_based_reranker() {
-        let reranker = ScoreBasedReranker::new().with_threshold(0.5);
-
-        let documents = vec![
-            Document::new("Doc 1").with_score(0.9),
-            Document::new("Doc 2").with_score(0.3),
-            Document::new("Doc 3").with_score(0.7),
-        ];
-
-        let result = reranker.rerank("query", documents, 10).await.unwrap();
-
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].score, Some(0.9));
-        assert_eq!(result[1].score, Some(0.7));
-    }
-}

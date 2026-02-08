@@ -15,6 +15,7 @@ mod inner_loop;
 mod reference;
 mod routing;
 mod scanner;
+mod supervisor;
 
 use config::{CliOverrides, MosConfig, ModelProfile};
 use routing::Router;
@@ -83,7 +84,8 @@ fn print_usage() {
     eprintln!("mos v{} — autonomous coding agent", VERSION);
     eprintln!();
     eprintln!("Usage:");
-    eprintln!("  mos <task>              Run a task");
+    eprintln!("  mos <task>              Run a task (single agent)");
+    eprintln!("  mos build <task>        Supervised multi-phase build");
     eprintln!("  mos init                Initialize .agent/ directory");
     eprintln!("  mos graph               Show knowledge graph summary");
     eprintln!("  mos models              Show configured model profiles");
@@ -106,6 +108,10 @@ enum Command {
     Scan,
     Reference { source: String },
     Run {
+        task: String,
+        overrides: CliOverrides,
+    },
+    Build {
         task: String,
         overrides: CliOverrides,
     },
@@ -132,6 +138,32 @@ fn parse_args() -> Option<Command> {
                 return None;
             }
             return Some(Command::Reference { source });
+        }
+        "build" => {
+            // Parse remaining args as task + overrides for supervised build
+            let remaining: Vec<String> = args[1..].to_vec();
+            let mut overrides = CliOverrides {
+                workspace: PathBuf::from("."),
+                ..Default::default()
+            };
+            let mut task_parts = Vec::new();
+            let mut j = 0;
+            while j < remaining.len() {
+                match remaining[j].as_str() {
+                    "--model" => { overrides.model = remaining.get(j + 1).cloned(); j += 2; }
+                    "--base-url" => { overrides.base_url = remaining.get(j + 1).cloned(); j += 2; }
+                    "--workspace" => { overrides.workspace = PathBuf::from(remaining.get(j + 1).map(|s| s.as_str()).unwrap_or(".")); j += 2; }
+                    "--max-iter" => { overrides.max_iterations = remaining.get(j + 1).and_then(|s| s.parse().ok()); j += 2; }
+                    "--autonomous" => { overrides.autonomous = true; j += 1; }
+                    _ => { task_parts.push(remaining[j].clone()); j += 1; }
+                }
+            }
+            let task = task_parts.join(" ");
+            if task.is_empty() {
+                eprintln!("error: mos build <task>");
+                return None;
+            }
+            return Some(Command::Build { task, overrides });
         }
         _ => {}
     }
@@ -706,6 +738,301 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     eprintln!("\x1b[31mmos error:\x1b[0m {}", e);
                     std::process::exit(1);
                 }
+            }
+        }
+
+        // ── Supervised multi-phase build ──
+        Command::Build { task, overrides } => {
+            let workspace_root = overrides.workspace.canonicalize().unwrap_or(overrides.workspace.clone());
+            let workspace_str = workspace_root.display().to_string();
+
+            let cfg = MosConfig::load(&workspace_root);
+            let api_key = match env::var("OPENAI_API_KEY") {
+                Ok(k) => k,
+                Err(_) => {
+                    eprintln!("\x1b[31mmos error:\x1b[0m OPENAI_API_KEY not set");
+                    std::process::exit(1);
+                }
+            };
+
+            // Determine prompts directory
+            let prompts_dir = if workspace_root.join("prompts").exists() {
+                workspace_root.join("prompts")
+            } else {
+                // Fall back to the MOS binary's bundled prompts
+                let exe_dir = env::current_exe()
+                    .ok()
+                    .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+                    .unwrap_or_else(|| PathBuf::from("."));
+                exe_dir.join("../../prompts") // mos/prompts relative to mos/target/debug/mos
+            };
+
+            let sup_config = supervisor::SupervisorConfig {
+                max_iterations: overrides.max_iterations.unwrap_or(20) as u32,
+                agent_max_iter: 15,
+                token_budget: 2_000_000,
+                parallel_modules: false,
+                prompts_dir: prompts_dir.clone(),
+            };
+
+            eprintln!("\x1b[1;36mmos\x1b[0m v{}", VERSION);
+            eprintln!("\x1b[1;36mmos\x1b[0m | \x1b[1;33msupervised build\x1b[0m");
+            eprintln!("\x1b[1;36mmos\x1b[0m | workspace: {}", workspace_str);
+            eprintln!("\x1b[1;36mmos\x1b[0m | task: {}", task);
+            eprintln!("\x1b[1;36mmos\x1b[0m | max phases: {}", sup_config.max_iterations);
+            eprintln!("\x1b[1;36mmos\x1b[0m | prompts: {}", prompts_dir.display());
+
+            // Create/load user request
+            let mut request = supervisor::load_active_request(&workspace_root)
+                .unwrap_or_else(|| supervisor::UserRequest::new(&task));
+            eprintln!("\x1b[1;36mmos\x1b[0m | request: {} ({})", request.id, if request.phases_completed.is_empty() { "new" } else { "resumed" });
+
+            let mut module_tracker = supervisor::ModuleTracker::new();
+            let mut total_tokens: u64 = 0;
+
+            let approval = if overrides.autonomous {
+                ApprovalPolicy::Never
+            } else {
+                match cfg.approval.as_str() {
+                    "autonomous" => ApprovalPolicy::Never,
+                    "always_ask" => ApprovalPolicy::Always,
+                    _ => ApprovalPolicy::SafeOnly,
+                }
+            };
+
+            // ── Supervisor Loop ──
+            for iteration in 0..sup_config.max_iterations {
+                eprintln!();
+                eprintln!("\x1b[1;34m── supervisor iteration {}/{} ──\x1b[0m", iteration + 1, sup_config.max_iterations);
+
+                // Phase 1: Evaluate current state
+                eprintln!("\x1b[1;34mevaluate\x1b[0m | inspecting workspace state...");
+                let eval_vars = supervisor::PromptVars {
+                    task: task.clone(),
+                    ..Default::default()
+                };
+                let eval_prompt = supervisor::load_prompt(&prompts_dir, &supervisor::Phase::Evaluate, &eval_vars);
+
+                let eval_profile = cfg.model_for_role("architect");
+                let eval_provider = build_provider(eval_profile, &api_key);
+                let eval_capsule = build_tools_capsule(&workspace_str);
+
+                let eval_agent_cfg = AgentConfig::new("mos-eval")
+                    .with_instructions(&eval_prompt)
+                    .with_max_iterations(10)
+                    .with_retries(4)
+                    .with_retry_delay(2000)
+                    .with_exponential_backoff(true)
+                    .with_approval_policy(approval.clone());
+
+                let eval_ws = Workspace::new(camino::Utf8PathBuf::from(&workspace_str));
+                let mut eval_agent = Agent::new(eval_agent_cfg, eval_ws, Box::new(eval_provider));
+                eval_agent.add_capsule(eval_capsule);
+
+                let eval_task = Task::new("Evaluate the current state of this project workspace");
+                let eval_output = match tokio::runtime::Handle::current().block_on(async {
+                    eval_agent.run(eval_task).await
+                }) {
+                    Ok(o) => o,
+                    Err(e) => {
+                        eprintln!("\x1b[31mevaluate error:\x1b[0m {}", e);
+                        request.status = supervisor::RequestStatus::Failed(e.to_string());
+                        supervisor::save_request(&workspace_root, &request);
+                        break;
+                    }
+                };
+
+                let eval_usage = eval_agent.total_usage();
+                total_tokens += eval_usage.total_tokens as u64;
+
+                // Parse state vector from evaluation
+                let state = eval_output.result
+                    .as_deref()
+                    .and_then(supervisor::parse_state_response)
+                    .unwrap_or_else(supervisor::StateVector::empty);
+
+                eprintln!(
+                    "\x1b[1;34mevaluate\x1b[0m | state: {:?} ({:.0}%)",
+                    state.bits,
+                    state.completion_ratio() * 100.0
+                );
+                if !state.summary.is_empty() {
+                    eprintln!("\x1b[1;34mevaluate\x1b[0m | {}", state.summary);
+                }
+                if !state.modules.is_empty() {
+                    eprintln!("\x1b[1;34mevaluate\x1b[0m | modules: {:?}", state.modules);
+                }
+
+                request.state_history.push(state.clone());
+
+                // Update module tracker from state
+                if !state.modules.is_empty() && module_tracker.modules.is_empty() {
+                    let plan_content = std::fs::read_to_string(workspace_root.join("PLAN.md")).unwrap_or_default();
+                    module_tracker = supervisor::ModuleTracker::from_state(&state, &plan_content);
+                }
+
+                // Check completion
+                if state.is_complete() {
+                    eprintln!("\x1b[1;32m✓ Project complete!\x1b[0m");
+                    request.status = supervisor::RequestStatus::Completed;
+                    supervisor::save_request(&workspace_root, &request);
+                    break;
+                }
+
+                // Check token budget
+                if total_tokens >= sup_config.token_budget {
+                    eprintln!("\x1b[33mbudget\x1b[0m | token budget exhausted ({}/{})", total_tokens, sup_config.token_budget);
+                    request.status = supervisor::RequestStatus::Paused;
+                    supervisor::save_request(&workspace_root, &request);
+                    break;
+                }
+
+                // Phase 2: Determine next phase and dispatch
+                let next_phase = state.next_phase();
+                eprintln!("\x1b[1;35mphase\x1b[0m | next: {:?}", next_phase);
+
+                if next_phase == supervisor::Phase::Done {
+                    eprintln!("\x1b[1;32m✓ All phases complete!\x1b[0m");
+                    request.status = supervisor::RequestStatus::Completed;
+                    supervisor::save_request(&workspace_root, &request);
+                    break;
+                }
+
+                // Build prompt variables
+                let plan_content = std::fs::read_to_string(workspace_root.join("PLAN.md")).unwrap_or_default();
+                let mut phase_module_name = String::new();
+                let mut phase_module_spec = String::new();
+
+                if next_phase == supervisor::Phase::Implement {
+                    if let Some(m) = module_tracker.next_unimplemented() {
+                        phase_module_name = m.name.clone();
+                        phase_module_spec = m.spec.clone();
+                        eprintln!("\x1b[1;35mphase\x1b[0m | implementing module: {}", phase_module_name);
+                    }
+                } else if next_phase == supervisor::Phase::Test {
+                    if let Some(m) = module_tracker.next_untested() {
+                        phase_module_name = m.name.clone();
+                        phase_module_spec = m.spec.clone();
+                        eprintln!("\x1b[1;35mphase\x1b[0m | testing module: {}", phase_module_name);
+                    }
+                }
+
+                let vars = supervisor::PromptVars {
+                    task: task.clone(),
+                    plan: plan_content,
+                    module_name: phase_module_name.clone(),
+                    module_spec: phase_module_spec,
+                    modules: state.modules.join(", "),
+                    errors: state.errors.join("\n"),
+                };
+
+                let phase_prompt = supervisor::load_prompt(&prompts_dir, &next_phase, &vars);
+
+                // Build and run the phase agent
+                let phase_profile = cfg.model_for_role("coder");
+                let phase_provider = build_provider(phase_profile, &api_key);
+                let phase_capsule = build_tools_capsule(&workspace_str);
+
+                let phase_instructions = format!(
+                    "{}\n\n## System\nYou are mos, an autonomous coding agent. You BUILD software.\n\
+                     You MUST use write_file to create files. Do NOT just describe what to do.\n\
+                     Keep working until this phase is complete.",
+                    phase_prompt
+                );
+
+                let phase_agent_cfg = AgentConfig::new("mos-phase")
+                    .with_instructions(&phase_instructions)
+                    .with_max_iterations(sup_config.agent_max_iter as usize)
+                    .with_retries(4)
+                    .with_retry_delay(2000)
+                    .with_exponential_backoff(true)
+                    .with_approval_policy(approval.clone());
+
+                let phase_ws = Workspace::new(camino::Utf8PathBuf::from(&workspace_str));
+                let mut phase_agent = Agent::new(phase_agent_cfg, phase_ws, Box::new(phase_provider));
+                phase_agent.add_capsule(phase_capsule);
+
+                let phase_task_desc = format!(
+                    "Execute phase '{}' for task: {}{}",
+                    next_phase.as_str(),
+                    &task,
+                    if !phase_module_name.is_empty() { format!(" (module: {})", phase_module_name) } else { String::new() }
+                );
+
+                eprintln!("\x1b[1;36mexecution\x1b[0m | dispatching agent for phase '{}'", next_phase.as_str());
+
+                let (tx, mut rx) = mpsc::channel::<AgentEvent>(64);
+                let phase_task = Task::new(&phase_task_desc);
+
+                let phase_result = tokio::runtime::Handle::current().block_on(async {
+                    let output_future = phase_agent.run_with_events(phase_task, Some(tx));
+
+                    let event_future = async {
+                        while let Some(event) = rx.recv().await {
+                            handle_event(event);
+                        }
+                    };
+
+                    let (result, _) = tokio::join!(output_future, event_future);
+                    result
+                });
+
+                let mut phase_result_status = supervisor::PhaseResult::Success;
+
+                match phase_result {
+                    Ok(output) => {
+                        let phase_usage = phase_agent.total_usage();
+                        total_tokens += phase_usage.total_tokens as u64;
+                        if !output.is_success() {
+                            let err_msg = output.error.unwrap_or_else(|| "Unknown error".to_string());
+                            eprintln!("\x1b[31mphase error:\x1b[0m {}", err_msg);
+                            phase_result_status = supervisor::PhaseResult::Failure(err_msg);
+                        }
+                    }
+                    Err(e) => {
+                        let phase_usage = phase_agent.total_usage();
+                        total_tokens += phase_usage.total_tokens as u64;
+                        eprintln!("\x1b[31mphase error:\x1b[0m {}", e);
+                        phase_result_status = supervisor::PhaseResult::Failure(e.to_string());
+                    }
+                }
+
+                // Mark module as implemented/tested if applicable
+                if phase_result_status == supervisor::PhaseResult::Success {
+                    if next_phase == supervisor::Phase::Implement && !phase_module_name.is_empty() {
+                        module_tracker.mark_implemented(&phase_module_name);
+                    } else if next_phase == supervisor::Phase::Test && !phase_module_name.is_empty() {
+                        module_tracker.mark_tested(&phase_module_name, true);
+                    }
+                }
+
+                // Record phase
+                request.phases_completed.push(supervisor::PhaseRecord {
+                    phase: next_phase.clone(),
+                    iteration,
+                    tokens_used: total_tokens,
+                    result: phase_result_status,
+                    module_name: if phase_module_name.is_empty() { None } else { Some(phase_module_name) },
+                });
+                request.total_tokens = total_tokens;
+                supervisor::save_request(&workspace_root, &request);
+
+                eprintln!(
+                    "\x1b[1;36mmos\x1b[0m | tokens so far: {} ({:.0}% of budget)",
+                    total_tokens,
+                    (total_tokens as f64 / sup_config.token_budget as f64) * 100.0
+                );
+            }
+
+            // Final summary
+            eprintln!();
+            eprintln!("\x1b[1;36m── build summary ──\x1b[0m");
+            eprintln!("\x1b[1;36mmos\x1b[0m | request: {}", request.id);
+            eprintln!("\x1b[1;36mmos\x1b[0m | status: {:?}", request.status);
+            eprintln!("\x1b[1;36mmos\x1b[0m | phases completed: {}", request.phases_completed.len());
+            eprintln!("\x1b[1;36mmos\x1b[0m | total tokens: {}", total_tokens);
+            if let Some(last_state) = request.state_history.last() {
+                eprintln!("\x1b[1;36mmos\x1b[0m | final state: {:?} ({:.0}%)", last_state.bits, last_state.completion_ratio() * 100.0);
             }
         }
     }

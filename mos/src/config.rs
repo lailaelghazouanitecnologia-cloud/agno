@@ -394,6 +394,11 @@ impl MosConfig {
         self.get_model(&self.routing.planning)
     }
 
+    /// Get model by role name (architect, coder, micro, leaf, etc.).
+    pub fn model_for_role(&self, role: &str) -> &ModelProfile {
+        self.get_model(role)
+    }
+
     /// Path to the .agent/ directory.
     pub fn agent_dir(&self) -> PathBuf {
         self.workspace.join(AGENT_DIR)

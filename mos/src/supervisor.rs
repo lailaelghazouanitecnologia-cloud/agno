@@ -14,17 +14,8 @@
 use roska_descriptor::Depth;
 use serde::{Deserialize, Serialize};
 
-// Re-export domain logic from focused modules so existing code works.
-pub use crate::graph_ops::{
-    analyze_gaps, derive_actions, parse_plan_into_graph,
-    update_project_graph, mark_feature_implemented, mark_feature_tested,
-    record_action_context, render_plan_status, is_plan_complete,
-    find_plan_features, feature_file_context, create_features_from_files,
-    match_files_to_features, adaptive_max_iter,
-};
-pub use crate::prompt::{compose_prompt, build_plan_prompt, render_performance_summary};
-pub use crate::persist::{UserRequest, save_request, load_active_request};
-pub use crate::util::sanitize_id;
+// Note: domain logic lives in graph_ops, prompt, persist, util modules.
+// Import directly from those modules instead of through supervisor.
 
 // ── Action System ──
 
@@ -153,6 +144,9 @@ pub enum RequestStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph_ops::*;
+    use crate::prompt::compose_prompt;
+    use crate::util::extract_json;
     use knowledge_core::graph::*;
     use knowledge_graph::KnowledgeGraph;
 
@@ -336,7 +330,6 @@ mod tests {
 
     #[test]
     fn test_extract_json() {
-        use crate::util::extract_json;
         let md = "Here is the plan:\n```json\n{\"features\": []}\n```\nDone.";
         assert_eq!(extract_json(md), "{\"features\": []}");
 

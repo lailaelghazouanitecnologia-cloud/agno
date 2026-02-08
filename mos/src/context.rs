@@ -152,7 +152,7 @@ impl<'a> ContextAssembler<'a> {
             | ActionKind::Test { feature_id, .. }
             | ActionKind::Fix { feature_id, .. } => {
                 let (feat_files, dep_files) =
-                    crate::supervisor::feature_file_context(feature_id, self.graph);
+                    crate::graph_ops::feature_file_context(feature_id, self.graph);
 
                 let scan_depth = match &action.kind {
                     ActionKind::Implement { .. } => Depth::Detail,

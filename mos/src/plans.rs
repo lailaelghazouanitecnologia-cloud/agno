@@ -103,7 +103,7 @@ pub enum PlanStatus {
 impl Plan {
     pub fn new(kind: PlanKind, name: impl Into<String>) -> Self {
         let name = name.into();
-        let id = format!("{}-{}", kind.label(), crate::supervisor::sanitize_id(&name));
+        let id = format!("{}-{}", kind.label(), crate::util::sanitize_id(&name));
         let now = now_ts();
         Self {
             id,

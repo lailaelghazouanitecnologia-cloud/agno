@@ -1,0 +1,19 @@
+{
+  "name": "c-compiler-js",
+  "version": "1.0.0",
+  "description": "A C to JavaScript transpiler",
+  "main": "src/compiler.js",
+  "bin": {
+    "c-compiler-js": "./src/cli.js"
+  },
+  "scripts": {
+    "test": "node tests/run-tests.js",
+    "compile": "node src/cli.js"
+  },
+  "keywords": ["c", "compiler", "transpiler", "javascript"],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

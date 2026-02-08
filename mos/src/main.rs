@@ -11,11 +11,17 @@
 //! - **errordb** tracks recurring errors + loop detection
 
 mod config;
+mod context;
+mod decision;
 mod inner_loop;
+mod plans;
+mod queue;
 mod reference;
 mod routing;
+mod rules;
 mod scanner;
 mod supervisor;
+mod tiers;
 
 use config::{CliOverrides, MosConfig, ModelProfile};
 use routing::Router;

@@ -1389,7 +1389,7 @@ fn camel_to_hyphen(name: &str) -> String {
     result
 }
 
-fn sanitize_id(name: &str) -> String {
+pub fn sanitize_id(name: &str) -> String {
     name.chars()
         .map(|c| {
             if c.is_alphanumeric() || c == '-' || c == '_' {

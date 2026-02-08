@@ -252,6 +252,10 @@ Be specific. Each feature should be implementable independently.
 
 /// Parse the model's plan response and populate the knowledge graph.
 /// Returns the list of feature node IDs created.
+///
+/// Handles multiple plan schemas:
+/// - Standard: `{"features": [{"id", "name", "files", "depends_on", "criteria"}]}`
+/// - Module-based: `{"modules": [{"id", "name", "file", "dependencies"}]}` + optional `features`
 pub fn parse_plan_into_graph(
     response: &str,
     task: &str,
@@ -274,31 +278,77 @@ pub fn parse_plan_into_graph(
         .with_description(format!("User request: {}", task));
     let _ = graph.add_node(intent_node);
 
-    let features = match parsed.get("features").and_then(|f| f.as_array()) {
-        Some(f) => f.clone(),
-        None => return Vec::new(),
+    // Try "modules" array first (more implementation-oriented), then "features"
+    let items = if let Some(modules) = parsed.get("modules").and_then(|m| m.as_array()) {
+        if !modules.is_empty() { modules.clone() } else {
+            match parsed.get("features").and_then(|f| f.as_array()) {
+                Some(f) if !f.is_empty() => f.clone(),
+                _ => return Vec::new(),
+            }
+        }
+    } else {
+        match parsed.get("features").and_then(|f| f.as_array()) {
+            Some(f) if !f.is_empty() => f.clone(),
+            _ => return Vec::new(),
+        }
     };
 
-    // First pass: create all feature nodes
-    for feat in &features {
-        let id = feat.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
-        let name = feat.get("name").and_then(|v| v.as_str()).unwrap_or(id);
-        let desc = feat.get("description").and_then(|v| v.as_str()).unwrap_or("");
+    // Build a name→node_id mapping for dependency resolution
+    let mut name_to_id: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
-        let node_id = format!("plan-{}", id);
+    // First pass: create all feature nodes
+    for item in &items {
+        let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let name = item.get("name").and_then(|v| v.as_str()).unwrap_or(id);
+        let desc = item.get("description").and_then(|v| v.as_str()).unwrap_or("");
+
+        let node_id = format!("plan-{}", sanitize_id(id));
+
+        // Collect files from multiple possible fields/formats
+        let mut file_list = Vec::new();
+        if let Some(files) = item.get("files").and_then(|f| f.as_array()) {
+            for f in files {
+                // "files": ["a.ts", "b.ts"] (string array)
+                if let Some(s) = f.as_str() {
+                    file_list.push(s.to_string());
+                }
+                // "files": [{"path": "a.ts"}, ...] (object array)
+                else if let Some(p) = f.get("path").and_then(|p| p.as_str()) {
+                    file_list.push(p.to_string());
+                }
+            }
+        }
+        // "file": "src/foo.ts" (single file)
+        if let Some(file) = item.get("file").and_then(|f| f.as_str()) {
+            if !file_list.iter().any(|f| f == file) {
+                file_list.push(file.to_string());
+            }
+        }
+        // "submodules": [{"file": "..."}]
+        if let Some(subs) = item.get("submodules").and_then(|s| s.as_array()) {
+            for sub in subs {
+                if let Some(sf) = sub.get("file").and_then(|f| f.as_str()) {
+                    file_list.push(sf.to_string());
+                }
+            }
+        }
+
         let mut node = Node::new(&node_id, name, NodeKind::Feature)
             .with_tag("plan")
             .with_description(desc.to_string());
 
-        if let Some(files) = feat.get("files").and_then(|f| f.as_array()) {
-            let files_str: Vec<&str> = files.iter().filter_map(|v| v.as_str()).collect();
-            node = node.with_meta("files", &files_str.join(","));
+        if !file_list.is_empty() {
+            node = node.with_meta("files", &file_list.join(","));
         }
-        if let Some(deps) = feat.get("depends_on").and_then(|d| d.as_array()) {
+
+        // Handle both "depends_on" and "dependencies" fields
+        let deps_array = item.get("depends_on").and_then(|d| d.as_array())
+            .or_else(|| item.get("dependencies").and_then(|d| d.as_array()));
+        if let Some(deps) = deps_array {
             let deps_str: Vec<String> = deps
                 .iter()
                 .filter_map(|v| v.as_str())
-                .map(|s| format!("plan-{}", s))
+                .map(|s| format!("plan-{}", sanitize_id(s)))
                 .collect();
             node = node.with_meta("depends_on", &deps_str.join(","));
         }
@@ -307,7 +357,7 @@ pub fn parse_plan_into_graph(
         let _ = graph.add_edge(Edge::new(&intent_id, &node_id, EdgeRelation::Parent));
 
         // Add specs from criteria
-        if let Some(criteria) = feat.get("criteria").and_then(|c| c.as_array()) {
+        if let Some(criteria) = item.get("criteria").and_then(|c| c.as_array()) {
             let mut spec = Spec::new(&node_id, format!("{} spec", name));
             for criterion in criteria {
                 if let Some(c) = criterion.as_str() {
@@ -317,30 +367,45 @@ pub fn parse_plan_into_graph(
             let _ = graph.add_spec(spec);
         }
 
+        // Map both the raw name and ID to node_id for dependency resolution
+        name_to_id.insert(name.to_string(), node_id.clone());
+        name_to_id.insert(id.to_string(), node_id.clone());
         feature_ids.push(node_id);
     }
 
     // Second pass: add dependency edges (all nodes exist now)
-    for feat in &features {
-        let id = feat.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
-        let node_id = format!("plan-{}", id);
+    for item in &items {
+        let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let node_id = format!("plan-{}", sanitize_id(id));
 
-        if let Some(deps) = feat.get("depends_on").and_then(|d| d.as_array()) {
+        let deps_array = item.get("depends_on").and_then(|d| d.as_array())
+            .or_else(|| item.get("dependencies").and_then(|d| d.as_array()));
+
+        if let Some(deps) = deps_array {
             for dep in deps {
                 if let Some(dep_str) = dep.as_str() {
-                    let dep_node_id = format!("plan-{}", dep_str);
-                    if feature_ids.contains(&dep_node_id) {
-                        let existing = graph.edges_from(&node_id);
-                        let already = existing.iter().any(|e| {
-                            e.to == dep_node_id && e.relation == EdgeRelation::DependsOn
-                        });
-                        if !already {
-                            let _ = graph.add_edge(Edge::new(
-                                &node_id,
-                                &dep_node_id,
-                                EdgeRelation::DependsOn,
-                            ));
+                    // Try direct ID match first, then name-based lookup
+                    let dep_node_id = {
+                        let direct = format!("plan-{}", sanitize_id(dep_str));
+                        if feature_ids.contains(&direct) {
+                            direct
+                        } else if let Some(mapped) = name_to_id.get(dep_str) {
+                            mapped.clone()
+                        } else {
+                            continue;
                         }
+                    };
+
+                    let existing = graph.edges_from(&node_id);
+                    let already = existing.iter().any(|e| {
+                        e.to == dep_node_id && e.relation == EdgeRelation::DependsOn
+                    });
+                    if !already {
+                        let _ = graph.add_edge(Edge::new(
+                            &node_id,
+                            &dep_node_id,
+                            EdgeRelation::DependsOn,
+                        ));
                     }
                 }
             }
@@ -949,6 +1014,104 @@ pub fn create_features_from_files(
     feature_ids
 }
 
+/// Match workspace files to plan features and return feature IDs that have files.
+///
+/// For each plan feature, checks if any of its expected files (from "files" meta)
+/// exist in the workspace file list. If yes, marks that feature as having code.
+pub fn match_files_to_features(
+    workspace_files: &[String],
+    plan_features: &[String],
+    graph: &KnowledgeGraph,
+) -> Vec<String> {
+    let mut matched = Vec::new();
+
+    // Normalize workspace file paths for comparison (just use filename + parent dir)
+    let ws_normalized: Vec<String> = workspace_files
+        .iter()
+        .map(|f| {
+            let p = std::path::Path::new(f);
+            // Get last 2 path components for comparison
+            let components: Vec<&str> = p.components()
+                .rev()
+                .take(3)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .map(|c| c.as_os_str().to_str().unwrap_or(""))
+                .collect();
+            components.join("/").to_lowercase()
+        })
+        .collect();
+
+    for fid in plan_features {
+        if let Some(node) = graph.get_node(fid) {
+            // Already implemented? skip
+            if node.meta.get("status").map(|s| s.as_str()) == Some("implemented") {
+                continue;
+            }
+            if node.meta.get("status").map(|s| s.as_str()) == Some("verified") {
+                continue;
+            }
+
+            if let Some(files_meta) = node.meta.get("files") {
+                let expected: Vec<&str> = files_meta.split(',')
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                if expected.is_empty() {
+                    // No expected files → match by feature name against file/dir names
+                    let name_lower = node.name.to_lowercase();
+                    let name_hyphen = name_lower.replace(' ', "-");
+                    let name_no_space = name_lower.replace(' ', "");
+                    let has_match = ws_normalized.iter().any(|wf| {
+                        wf.contains(&name_hyphen) || wf.contains(&name_no_space)
+                            || name_lower.split_whitespace().all(|part| {
+                                part.len() >= 3 && wf.contains(part)
+                            })
+                    });
+                    if has_match {
+                        matched.push(fid.clone());
+                    }
+                } else {
+                    // Check if expected files exist (by filename match, case-insensitive)
+                    let found = expected.iter().filter(|ef| {
+                        let ef_lower = ef.to_lowercase();
+                        let ef_name = std::path::Path::new(&ef_lower)
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default();
+                        // Also try hyphenated version (ArithmeticVM.ts → arithmetic-vm.ts)
+                        let ef_hyphen = camel_to_hyphen(&ef_name);
+                        ws_normalized.iter().any(|wf| {
+                            wf.contains(&ef_lower)
+                                || wf.ends_with(&ef_name)
+                                || wf.ends_with(&ef_hyphen)
+                        })
+                    }).count();
+
+                    // Match if ANY expected file exists (lenient)
+                    if found > 0 {
+                        matched.push(fid.clone());
+                    }
+                }
+            } else {
+                // No files metadata → try matching by name
+                let name_lower = node.name.to_lowercase()
+                    .replace(' ', "-")
+                    .replace('_', "-");
+                let has_match = ws_normalized.iter().any(|wf| {
+                    wf.contains(&name_lower) || wf.contains(&name_lower.replace('-', ""))
+                });
+                if has_match {
+                    matched.push(fid.clone());
+                }
+            }
+        }
+    }
+
+    matched
+}
+
 /// Find existing plan features in the graph (for resuming).
 pub fn find_plan_features(graph: &KnowledgeGraph) -> Vec<String> {
     let query = NodeQuery::new().kind(NodeKind::Feature).tag("plan");
@@ -1162,6 +1325,18 @@ fn extract_json(response: &str) -> String {
         }
     }
     response.to_string()
+}
+
+/// Convert CamelCase to hyphen-case: "ArithmeticVM" → "arithmetic-vm"
+fn camel_to_hyphen(name: &str) -> String {
+    let mut result = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if c.is_uppercase() && i > 0 {
+            result.push('-');
+        }
+        result.push(c.to_lowercase().next().unwrap_or(c));
+    }
+    result
 }
 
 fn sanitize_id(name: &str) -> String {

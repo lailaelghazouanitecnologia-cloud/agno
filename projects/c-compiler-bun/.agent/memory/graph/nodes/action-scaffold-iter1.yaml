@@ -1,0 +1,37 @@
+node:
+  id: action-scaffold-iter1
+  name: 'Action: scaffold'
+  kind: concept
+  description: 'Action: scaffold | depth: depth:overview | context_nodes: [plan-core-interfaces, plan-lexer, plan-parser, plan-microvm-registry, plan-arithmetic-vm, plan-comparison-vm, plan-controlflow-vm, plan-function-vm, plan-memory-vm, plan-io-vm, plan-type-vm, plan-compiler, plan-cli, plan-tests, plan-config] | tokens: 272037in+30748out | 100.6s | FAIL'
+  tags:
+  - action-context
+  - scaffold
+  meta:
+    duration_secs: '100.6'
+    prompt_tokens: '272037'
+    completion_tokens: '30748'
+    iteration: '1'
+    roska_depth: depth:overview
+    success: 'false'
+  weight: 0.5
+  conversation_count: 1
+  decision_count: 0
+  created_at: 1770573392
+  updated_at: 1770573392
+conversations:
+- id: k-1770573392-2
+  node_id: action-scaffold-iter1
+  topic: 'Action: scaffold | depth: depth:overview | context_nodes: [plan-core-interfaces, plan-lexer, plan-parser, plan-microvm-registry, plan-arithmetic-vm, plan-comparison-vm, plan-controlflow-vm, plan-function-vm, plan-memory-vm, plan-io-vm, plan-type-vm, plan-compiler, plan-cli, plan-tests, plan-config] | tokens: 272037in+30748out | 100.6s | FAIL'
+  messages:
+  - role: system
+    content: roska_depth=depth:overview estimated_tokens=3000 priority=0.95
+    timestamp: 1770573392
+  - role: agent
+    content: prompt_tokens=272037 completion_tokens=30748 duration_secs=100.6 success=false
+    timestamp: 1770573392
+  summary: null
+  outcomes: []
+  created_at: 1770573392
+  updated_at: 1770573392
+decisions: []
+specs: []

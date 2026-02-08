@@ -1045,11 +1045,33 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 match &action_clone.kind {
                     supervisor::ActionKind::Plan => {
                         // Parse plan response → create Feature nodes
-                        let features = supervisor::parse_plan_into_graph(
+                        let mut features = supervisor::parse_plan_into_graph(
                             &result_text,
                             &task,
                             &mut graph,
                         );
+
+                        // Fallback 1: model may have written plan.json to disk instead
+                        if features.is_empty() {
+                            for plan_name in &["plan.json", ".agent/plan.json"] {
+                                let plan_path = workspace_root.join(plan_name);
+                                if plan_path.exists() {
+                                    if let Ok(content) = std::fs::read_to_string(&plan_path) {
+                                        eprintln!(
+                                            "\x1b[1;35mplan\x1b[0m | found {}, parsing...",
+                                            plan_name
+                                        );
+                                        features = supervisor::parse_plan_into_graph(
+                                            &content, &task, &mut graph,
+                                        );
+                                        if !features.is_empty() {
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         if !features.is_empty() {
                             eprintln!(
                                 "\x1b[1;35mplan\x1b[0m | created {} features in graph",
@@ -1059,8 +1081,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                             request.plan_features = plan_features.clone();
                         } else {
                             eprintln!("\x1b[33mplan\x1b[0m | no JSON plan parsed, checking workspace for files...");
-                            // Fallback: if model wrote files instead of producing a plan,
-                            // create a single feature from existing workspace files
+                            // Fallback 2: if model wrote source files instead of a plan,
+                            // create features from existing workspace files
                             let src_files = list_source_files(&workspace_root);
                             if !src_files.is_empty() {
                                 eprintln!(
@@ -1080,6 +1102,25 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                                         supervisor::mark_feature_implemented(&mut graph, fid);
                                     }
                                 }
+                            }
+                        }
+                    }
+                    supervisor::ActionKind::Scaffold => {
+                        // After scaffold, detect which files were created and mark
+                        // matching features as implemented
+                        let src_files = list_source_files(&workspace_root);
+                        if !src_files.is_empty() {
+                            let matched = supervisor::match_files_to_features(
+                                &src_files, &plan_features, &graph,
+                            );
+                            for fid in &matched {
+                                supervisor::mark_feature_implemented(&mut graph, fid);
+                            }
+                            if !matched.is_empty() {
+                                eprintln!(
+                                    "\x1b[1;32mscaffold\x1b[0m | {} features matched from {} files",
+                                    matched.len(), src_files.len()
+                                );
                             }
                         }
                     }

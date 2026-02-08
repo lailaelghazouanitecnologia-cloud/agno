@@ -1,0 +1,17 @@
+node:
+  id: plan-function-vm
+  name: FunctionVM
+  kind: feature
+  description: Handles function definitions, calls, returns, and call stack
+  tags:
+  - plan
+  meta:
+    depends_on: plan-core-interfaces,plan-microvm-registry
+  weight: 0.5
+  conversation_count: 0
+  decision_count: 0
+  created_at: 1770573291
+  updated_at: 1770573291
+conversations: []
+decisions: []
+specs: []

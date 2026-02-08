@@ -1,0 +1,17 @@
+node:
+  id: plan-microvm-registry
+  name: MicroVM Registry
+  kind: feature
+  description: Central registry that dispatches operations to specialized VMs
+  tags:
+  - plan
+  meta:
+    depends_on: plan-core-interfaces
+  weight: 0.5
+  conversation_count: 0
+  decision_count: 0
+  created_at: 1770573291
+  updated_at: 1770573291
+conversations: []
+decisions: []
+specs: []

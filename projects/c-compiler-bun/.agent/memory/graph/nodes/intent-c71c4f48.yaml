@@ -1,0 +1,17 @@
+node:
+  id: intent-c71c4f48
+  name: 'Build a C compiler in TypeScript using Bun as runtime. The compiler uses a micro-VM architecture where each language feature has its own specialized VM module. Support: variables (int, char, float), arithmetic (+,-,*,/,%), comparisons (<,>,<=,>=,==,!=), if/else/else-if, while/for loops, functions with parameters and return values, arrays, pointers (basic: &, *), printf/scanf, and string literals. Architecture: 1) Lexer (tokenizer for C tokens), 2) Parser (recursive descent, builds AST), 3) MicroVM registry that dispatches to specialized VMs, 4) ArithmeticVM (handles +,-,*,/,% operations), 5) ComparisonVM (handles relational and equality ops), 6) ControlFlowVM (handles if/else, while, for), 7) FunctionVM (handles function definitions, calls, returns, call stack), 8) MemoryVM (handles variables, arrays, pointers, scoping with stack frames), 9) IOvm (handles printf/scanf), 10) TypeVM (handles type checking and casting), 11) Main Compiler class that orchestrates everything, 12) Comprehensive tests using bun:test. Each micro-VM implements a common MicroVM interface. Use package.json with bun as runtime, no external deps. Include a CLI entry point that compiles and runs .c files.'
+  kind: concept
+  description: 'User request: Build a C compiler in TypeScript using Bun as runtime. The compiler uses a micro-VM architecture where each language feature has its own specialized VM module. Support: variables (int, char, float), arithmetic (+,-,*,/,%), comparisons (<,>,<=,>=,==,!=), if/else/else-if, while/for loops, functions with parameters and return values, arrays, pointers (basic: &, *), printf/scanf, and string literals. Architecture: 1) Lexer (tokenizer for C tokens), 2) Parser (recursive descent, builds AST), 3) MicroVM registry that dispatches to specialized VMs, 4) ArithmeticVM (handles +,-,*,/,% operations), 5) ComparisonVM (handles relational and equality ops), 6) ControlFlowVM (handles if/else, while, for), 7) FunctionVM (handles function definitions, calls, returns, call stack), 8) MemoryVM (handles variables, arrays, pointers, scoping with stack frames), 9) IOvm (handles printf/scanf), 10) TypeVM (handles type checking and casting), 11) Main Compiler class that orchestrates everything, 12) Comprehensive tests using bun:test. Each micro-VM implements a common MicroVM interface. Use package.json with bun as runtime, no external deps. Include a CLI entry point that compiles and runs .c files.'
+  tags:
+  - intent
+  - plan-root
+  meta: {}
+  weight: 1.0
+  conversation_count: 0
+  decision_count: 0
+  created_at: 1770573291
+  updated_at: 1770573291
+conversations: []
+decisions: []
+specs: []

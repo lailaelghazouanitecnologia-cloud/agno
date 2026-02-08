@@ -1,0 +1,18 @@
+node:
+  id: plan-lexer
+  name: Lexer (Tokenizer)
+  kind: feature
+  description: Tokenizes C source code into tokens
+  tags:
+  - plan
+  meta:
+    status: implemented
+    depends_on: plan-core-interfaces
+  weight: 0.5
+  conversation_count: 0
+  decision_count: 0
+  created_at: 1770573291
+  updated_at: 1770573630
+conversations: []
+decisions: []
+specs: []

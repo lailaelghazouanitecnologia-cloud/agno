@@ -1,0 +1,37 @@
+node:
+  id: action-plan-iter0
+  name: 'Action: plan'
+  kind: concept
+  description: 'Action: plan | depth: depth:overview | context_nodes: [] | tokens: 26257in+5136out | 17.9s | FAIL'
+  tags:
+  - action-context
+  - plan
+  meta:
+    roska_depth: depth:overview
+    completion_tokens: '5136'
+    success: 'false'
+    iteration: '0'
+    duration_secs: '17.9'
+    prompt_tokens: '26257'
+  weight: 0.5
+  conversation_count: 1
+  decision_count: 0
+  created_at: 1770573291
+  updated_at: 1770573291
+conversations:
+- id: k-1770573291-1
+  node_id: action-plan-iter0
+  topic: 'Action: plan | depth: depth:overview | context_nodes: [] | tokens: 26257in+5136out | 17.9s | FAIL'
+  messages:
+  - role: system
+    content: roska_depth=depth:overview estimated_tokens=2000 priority=1.00
+    timestamp: 1770573291
+  - role: agent
+    content: prompt_tokens=26257 completion_tokens=5136 duration_secs=17.9 success=false
+    timestamp: 1770573291
+  summary: null
+  outcomes: []
+  created_at: 1770573291
+  updated_at: 1770573291
+decisions: []
+specs: []

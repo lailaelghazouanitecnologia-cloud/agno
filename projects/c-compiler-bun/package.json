@@ -1,0 +1,26 @@
+{
+  "name": "c-compiler-bun",
+  "version": "1.0.0",
+  "description": "A C compiler built with TypeScript and Bun using micro-VM architecture",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "cc-bun": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "bun build src/cli.ts --outdir dist --target bun",
+    "dev": "bun run src/cli.ts",
+    "test": "bun test",
+    "compile": "bun run src/cli.ts"
+  },
+  "keywords": ["c", "compiler", "typescript", "bun", "vm"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

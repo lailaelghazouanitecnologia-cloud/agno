@@ -1,0 +1,48 @@
+[package]
+name = "mos"
+version = "0.1.0"
+edition = "2021"
+description = "mos — autonomous coding agent with deep project knowledge"
+
+[[bin]]
+name = "mos"
+path = "src/main.rs"
+
+[dependencies]
+# KKR — agent core + provider
+kkr-core = { path = "../kkr/crates/core" }
+kkr-provider-openai = { path = "../kkr/crates/providers/openai" }
+
+# KKR — native coding tools
+kkr-tool-fs = { path = "../kkr/crates/tools/fs" }
+kkr-tool-shell = { path = "../kkr/crates/tools/shell" }
+kkr-tool-git = { path = "../kkr/crates/tools/git" }
+kkr-tool-search = { path = "../kkr/crates/tools/search" }
+
+# KKR — internal monologue engine
+kkr-inner = { path = "../kkr/crates/inner" }
+kkr-plan = { path = "../kkr/crates/plan" }
+
+# Roska — code analysis at depth levels
+roska-descriptor = { path = "../roska/crates/descriptor" }
+roska-generator = { path = "../roska/crates/generator" }
+roska-processor = { path = "../roska/crates/processor" }
+
+# Knowledge — graph + persistence
+knowledge-core = { path = "../knowledge/crates/knowledge-core" }
+knowledge-graph = { path = "../knowledge/crates/knowledge-graph" }
+knowledge-persist = { path = "../knowledge/crates/knowledge-persist" }
+
+# Shared
+common-error = { path = "../common/crates/common-error" }
+
+# Async
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Path handling
+camino = { version = "1.1", features = ["serde1"] }

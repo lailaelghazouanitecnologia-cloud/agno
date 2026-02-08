@@ -1,0 +1,17 @@
+node:
+  id: intent-2b248f5a
+  name: 'Build a modular compiler in TypeScript for a mini programming language called ''Volt''. The language supports: variables (let x = 5), arithmetic (+,-,*,/,%), comparisons (<,>,==,\!=), if/else, while loops, functions with parameters, and print(). The compiler architecture must use micro-VMs: each language feature (arithmetic, control flow, functions, etc) has its own micro-VM module that compiles and executes its part. The system has: 1) Lexer (tokenizer), 2) Parser (AST builder), 3) A MicroVM registry that dispatches to specialized micro-VMs, 4) ArithmeticVM (handles +,-,*,/,%), 5) ComparisonVM (handles <,>,==,\!=), 6) ControlFlowVM (handles if/else, while), 7) FunctionVM (handles function defs and calls), 8) MemoryVM (handles variables, scoping), 9) A main Compiler class that orchestrates everything, 10) Comprehensive tests. Each micro-VM should implement a common MicroVM interface. Include package.json with jest for testing.'
+  kind: concept
+  description: 'User request: Build a modular compiler in TypeScript for a mini programming language called ''Volt''. The language supports: variables (let x = 5), arithmetic (+,-,*,/,%), comparisons (<,>,==,\!=), if/else, while loops, functions with parameters, and print(). The compiler architecture must use micro-VMs: each language feature (arithmetic, control flow, functions, etc) has its own micro-VM module that compiles and executes its part. The system has: 1) Lexer (tokenizer), 2) Parser (AST builder), 3) A MicroVM registry that dispatches to specialized micro-VMs, 4) ArithmeticVM (handles +,-,*,/,%), 5) ComparisonVM (handles <,>,==,\!=), 6) ControlFlowVM (handles if/else, while), 7) FunctionVM (handles function defs and calls), 8) MemoryVM (handles variables, scoping), 9) A main Compiler class that orchestrates everything, 10) Comprehensive tests. Each micro-VM should implement a common MicroVM interface. Include package.json with jest for testing.'
+  tags:
+  - intent
+  - plan-root
+  meta: {}
+  weight: 1.0
+  conversation_count: 0
+  decision_count: 0
+  created_at: 1770570668
+  updated_at: 1770570668
+conversations: []
+decisions: []
+specs: []

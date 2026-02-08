@@ -1,0 +1,18 @@
+node:
+  id: plan-types
+  name: types
+  kind: feature
+  description: 'types: 5 files'
+  tags:
+  - plan
+  meta:
+    status: implemented
+    files: /home/user/agno/projects/micro-compiler/src/types/AST.ts,/home/user/agno/projects/micro-compiler/src/types/MicroVM.ts,/home/user/agno/projects/micro-compiler/src/types/Scope.ts,/home/user/agno/projects/micro-compiler/src/types/Value.ts,/home/user/agno/projects/micro-compiler/src/types/Token.ts
+  weight: 0.5
+  conversation_count: 0
+  decision_count: 0
+  created_at: 1770570668
+  updated_at: 1770570668
+conversations: []
+decisions: []
+specs: []

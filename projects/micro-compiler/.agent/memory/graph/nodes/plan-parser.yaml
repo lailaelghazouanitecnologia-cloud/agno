@@ -1,0 +1,18 @@
+node:
+  id: plan-parser
+  name: parser
+  kind: feature
+  description: 'parser: 1 files'
+  tags:
+  - plan
+  meta:
+    status: tested-failed
+    files: /home/user/agno/projects/micro-compiler/src/parser/Parser.ts
+  weight: 0.5
+  conversation_count: 0
+  decision_count: 0
+  created_at: 1770570668
+  updated_at: 1770570807
+conversations: []
+decisions: []
+specs: []

@@ -1,0 +1,18 @@
+node:
+  id: plan-vm
+  name: vm
+  kind: feature
+  description: 'vm: 6 files'
+  tags:
+  - plan
+  meta:
+    files: /home/user/agno/projects/micro-compiler/src/vm/ControlFlowVM.ts,/home/user/agno/projects/micro-compiler/src/vm/ComparisonVM.ts,/home/user/agno/projects/micro-compiler/src/vm/MicroVMRegistry.ts,/home/user/agno/projects/micro-compiler/src/vm/ArithmeticVM.ts,/home/user/agno/projects/micro-compiler/src/vm/PrintVM.ts,/home/user/agno/projects/micro-compiler/src/vm/MemoryVM.ts
+    status: implemented
+  weight: 0.5
+  conversation_count: 0
+  decision_count: 0
+  created_at: 1770570668
+  updated_at: 1770570668
+conversations: []
+decisions: []
+specs: []

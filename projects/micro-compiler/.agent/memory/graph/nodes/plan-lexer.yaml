@@ -1,0 +1,18 @@
+node:
+  id: plan-lexer
+  name: lexer
+  kind: feature
+  description: 'lexer: 1 files'
+  tags:
+  - plan
+  meta:
+    files: /home/user/agno/projects/micro-compiler/src/lexer/Lexer.ts
+    status: implemented
+  weight: 0.5
+  conversation_count: 0
+  decision_count: 0
+  created_at: 1770570668
+  updated_at: 1770570668
+conversations: []
+decisions: []
+specs: []

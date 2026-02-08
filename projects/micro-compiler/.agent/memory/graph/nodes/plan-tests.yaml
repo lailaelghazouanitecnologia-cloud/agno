@@ -1,0 +1,19 @@
+node:
+  id: plan-tests
+  name: Tests
+  kind: feature
+  description: 'Test suite: 7 test files'
+  tags:
+  - plan
+  - test
+  meta:
+    files: /home/user/agno/projects/micro-compiler/src/parser/__tests__/Parser.test.ts,/home/user/agno/projects/micro-compiler/src/lexer/__tests__/Lexer.test.ts,/home/user/agno/projects/micro-compiler/src/vm/__tests__/ComparisonVM.test.ts,/home/user/agno/projects/micro-compiler/src/vm/__tests__/MicroVMRegistry.test.ts,/home/user/agno/projects/micro-compiler/src/vm/__tests__/PrintVM.test.ts,/home/user/agno/projects/micro-compiler/src/vm/__tests__/ArithmeticVM.test.ts,/home/user/agno/projects/micro-compiler/src/vm/__tests__/MemoryVM.test.ts
+    status: implemented
+  weight: 0.5
+  conversation_count: 0
+  decision_count: 0
+  created_at: 1770570668
+  updated_at: 1770570668
+conversations: []
+decisions: []
+specs: []

@@ -586,6 +586,9 @@ impl Agent {
         let tools_opt = if tools.is_empty() { None } else { Some(tools) };
 
         let mut iterations = 0;
+        let mut has_written = false; // Track if model has performed any write operations
+        let mut nudge_count = 0u32;  // Prevent infinite nudge loops
+        const MAX_NUDGES: u32 = 2;   // Max times to nudge the model to continue
 
         loop {
             if iterations >= self.config.max_iterations {
@@ -619,6 +622,27 @@ impl Agent {
 
             match response.finish_reason {
                 FinishReason::Stop => {
+                    // If the model stops without having written any files and
+                    // we haven't nudged too many times, send a continuation
+                    // message to push it to actually implement the solution.
+                    if !has_written && nudge_count < MAX_NUDGES {
+                        nudge_count += 1;
+                        let nudge_msg = Message {
+                            role: Role::User,
+                            content: "You have analyzed the project but have not created any files yet. \
+                                Please proceed with the implementation now. Use the write_file tool to \
+                                create source code files. Do not just describe what to do — actually \
+                                create the files and implement the solution.".to_string(),
+                            name: None,
+                            tool_calls: None,
+                            tool_call_id: None,
+                        };
+                        messages.push(nudge_msg.clone());
+                        self.messages.push(nudge_msg);
+                        iterations += 1;
+                        continue;
+                    }
+
                     let output = Output::success(task.id, response.message.content);
                     if let Some(ref tx) = event_tx {
                         let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
@@ -703,6 +727,19 @@ impl Agent {
                             };
                             let success = result.is_ok();
 
+                            // Track if the model has performed an actual file-write
+                            // operation (not just shell commands that happen to be
+                            // non-read-only). We check for tool names containing
+                            // "write", "mkdir", "copy", "move" to detect real file ops.
+                            if success {
+                                let tn = tool_call.name.to_lowercase();
+                                if tn.contains("write") || tn.contains("mkdir")
+                                    || tn.contains("copy") || tn.contains("move")
+                                {
+                                    has_written = true;
+                                }
+                            }
+
                             let tool_msg = Message {
                                 role: Role::Tool,
                                 content: match &result {
@@ -729,11 +766,21 @@ impl Agent {
                 }
 
                 FinishReason::Length => {
-                    let output = Output::failure(task.id, "Response too long".to_string());
-                    if let Some(ref tx) = event_tx {
-                        let _ = tx.send(AgentEvent::RunCompleted { output: output.clone() }).await;
-                    }
-                    return Ok(output);
+                    // The model hit its token limit. Instead of failing,
+                    // send a continuation message telling it to use tools
+                    // for large content rather than inline text.
+                    let continue_msg = Message {
+                        role: Role::User,
+                        content: "Your response was cut off because it exceeded the token limit. \
+                            Do NOT write code inline in your response. Instead, use the write_file \
+                            tool to create files. Call write_file for each file you need to create. \
+                            Continue implementing the solution.".to_string(),
+                        name: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                    };
+                    messages.push(continue_msg.clone());
+                    self.messages.push(continue_msg);
                 }
 
                 FinishReason::ContentFilter => {

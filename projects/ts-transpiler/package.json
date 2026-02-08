@@ -1,0 +1,25 @@
+{
+  "name": "ts-transpiler",
+  "version": "1.0.0",
+  "description": "TypeScript to JavaScript transpiler",
+  "main": "dist/index.js",
+  "bin": {
+    "ts-transpile": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "node dist/test.js",
+    "cli": "node dist/cli.js"
+  },
+  "keywords": [
+    "typescript",
+    "transpiler",
+    "javascript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

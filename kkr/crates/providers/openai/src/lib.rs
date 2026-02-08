@@ -223,6 +223,12 @@ impl Provider for OpenAI {
             .map_err(|e| kkr_core::error::provider("openai",format!("Failed to read response: {}", e)))?;
 
         if !status.is_success() {
+            if status.as_u16() == 429 {
+                return Err(kkr_core::error::rate_limited(format!(
+                    "Rate limited (429): {}",
+                    body
+                )));
+            }
             return Err(kkr_core::error::provider("openai",format!(
                 "API error ({}): {}",
                 status, body

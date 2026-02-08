@@ -77,6 +77,10 @@ pub fn path_traversal(path: impl Into<String>) -> Error {
     )
 }
 
+pub fn rate_limited(message: impl Into<String>) -> Error {
+    Error::new(ErrorKind::RateLimited, message)
+}
+
 pub fn other(message: impl Into<String>) -> Error {
     Error::new(ErrorKind::Internal, message)
 }

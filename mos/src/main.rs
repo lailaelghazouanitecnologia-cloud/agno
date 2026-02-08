@@ -27,6 +27,7 @@ use kkr_core::workspace::Workspace;
 use kkr_core::Task;
 use kkr_provider_openai::{OpenAI, OpenAIConfig};
 use std::env;
+use std::io::Write;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 
@@ -235,6 +236,88 @@ fn save_graph(cfg: &MosConfig, graph: &KnowledgeGraph) {
     }
 }
 
+/// Persistent structured logger — writes JSONL to .agent/logs/run-{id}.jsonl
+struct RunLogger {
+    file: Option<std::fs::File>,
+    run_id: String,
+}
+
+impl RunLogger {
+    fn new(cfg: &MosConfig, run_id: &str) -> Self {
+        let logs_dir = cfg.workspace.join(config::AGENT_DIR).join(config::LOGS_DIR);
+        let _ = std::fs::create_dir_all(&logs_dir);
+        let path = logs_dir.join(format!("run-{}.jsonl", &run_id[..run_id.len().min(8)]));
+        let file = std::fs::File::create(&path).ok();
+        if file.is_some() {
+            eprintln!("\x1b[90m[log]\x1b[0m {}", path.display());
+        }
+        Self { file, run_id: run_id.to_string() }
+    }
+
+    fn log(&mut self, event_type: &str, data: &serde_json::Value) {
+        if let Some(ref mut f) = self.file {
+            let entry = serde_json::json!({
+                "ts": std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
+                "run": &self.run_id[..self.run_id.len().min(8)],
+                "event": event_type,
+                "data": data,
+            });
+            let _ = writeln!(f, "{}", entry);
+        }
+    }
+
+    fn log_phase(&mut self, phase: &str, summary: &str) {
+        self.log("phase", &serde_json::json!({
+            "phase": phase,
+            "summary": summary,
+        }));
+    }
+
+    fn log_tool_call(&mut self, tool: &str, call_id: &str, success: bool) {
+        self.log("tool_call", &serde_json::json!({
+            "tool": tool,
+            "call_id": &call_id[..call_id.len().min(8)],
+            "success": success,
+        }));
+    }
+
+    fn log_plan(&mut self, plan_title: &str, step_count: usize) {
+        self.log("plan", &serde_json::json!({
+            "title": plan_title,
+            "steps": step_count,
+        }));
+    }
+
+    fn log_tokens(&mut self, prompt: u32, completion: u32) {
+        self.log("tokens", &serde_json::json!({
+            "prompt": prompt,
+            "completion": completion,
+            "total": prompt + completion,
+        }));
+    }
+}
+
+/// Save a plan to .agent/memory/plans/{id}.yaml
+fn save_plan(cfg: &MosConfig, plan: &kkr_plan::Plan) {
+    let plans_dir = cfg.workspace.join(config::AGENT_DIR).join("memory/plans");
+    let _ = std::fs::create_dir_all(&plans_dir);
+    let plan_id = plan.id.replace(|c: char| !c.is_alphanumeric() && c != '-', "_");
+    let path = plans_dir.join(format!("{}.yaml", plan_id));
+    match serde_yaml::to_string(plan) {
+        Ok(yaml) => {
+            if let Err(e) = std::fs::write(&path, yaml) {
+                eprintln!("\x1b[33mwarning\x1b[0m | failed to save plan: {}", e);
+            } else {
+                eprintln!("\x1b[1;35mplan\x1b[0m | saved to {}", path.display());
+            }
+        }
+        Err(e) => eprintln!("\x1b[33mwarning\x1b[0m | failed to serialize plan: {}", e),
+    }
+}
+
 /// Print model profiles summary.
 fn print_models(cfg: &MosConfig) {
     eprintln!("\x1b[1;36mmos\x1b[0m | model profiles:\n");
@@ -402,10 +485,12 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             // Load knowledge graph
             let mut graph = load_graph(&cfg);
 
-            // Run perception phase (roska scan → knowledge graph)
+            // Create inner loop for all 5 phases
+            let inner_cfg = inner_loop::inner_config_from_mos(&cfg);
+            let mut mos_inner = inner_loop::MosInnerLoop::new(&task, inner_cfg);
+
+            // ── Phase 1: PERCEPTION (roska scan → knowledge graph) ──
             if cfg.auto_scan {
-                let inner_cfg = inner_loop::inner_config_from_mos(&cfg);
-                let mut mos_inner = inner_loop::MosInnerLoop::new(&task, inner_cfg);
                 let perception = mos_inner.run_perception(&workspace_path, &mut graph);
                 if !perception.summary.contains("Starting from scratch") {
                     eprintln!(
@@ -418,7 +503,6 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             let graph_context = graph.render_map();
 
             // Select the planning model for the initial run
-            // (individual sub-tasks will use depth-appropriate models later)
             let planning_profile = cfg.model_for_planning();
             let provider = build_provider(planning_profile, &api_key);
 
@@ -442,7 +526,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             let agent_config = AgentConfig::new("mos")
                 .with_instructions(&instructions)
                 .with_max_iterations(cfg.max_iterations)
-                .with_retries(2)
+                .with_retries(4)
+                .with_retry_delay(2000)
                 .with_exponential_backoff(true)
                 .with_approval_policy(approval);
 
@@ -454,6 +539,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
             let (tx, mut rx) = mpsc::channel::<AgentEvent>(256);
             let kkr_task = Task::new(&task);
+
+            // Initialize persistent logger (P5 fix)
+            let run_id = uuid::Uuid::new_v4().to_string();
+            let mut logger = RunLogger::new(&cfg, &run_id);
 
             // Print startup info
             eprintln!("\x1b[1;36mmos\x1b[0m v{}", VERSION);
@@ -478,6 +567,72 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             eprintln!("\x1b[1;36mmos\x1b[0m | task: {}", task);
             eprintln!();
 
+            logger.log("run_start", &serde_json::json!({
+                "task": &task,
+                "workspace": &workspace_str,
+                "model": &planning_profile.model,
+                "max_iterations": cfg.max_iterations,
+                "graph_nodes": graph.node_count(),
+            }));
+            logger.log_phase("perception", &format!("{} nodes in graph", graph.node_count()));
+
+            // ── Phase 2: DELIBERATION (inner monologue — not yet LLM-driven) ──
+            // The deliberation phase produces prompts for LLM calls.
+            // Since we run a single planning model, we simulate one
+            // deliberation cycle: generate the plan prompt, let the agent
+            // incorporate it into its context, and capture any plan artifacts.
+            let deliberation_context = {
+                let action = mos_inner.next_deliberation_action();
+                match action {
+                    inner_loop::NextAction::CallLlm { prompt, role, model_profile } => {
+                        eprintln!(
+                            "\x1b[1;34mdeliberation\x1b[0m | {:?} → profile '{}'",
+                            role, model_profile
+                        );
+                        logger.log_phase("deliberation", &format!("{:?} role active", role));
+                        // Inject the deliberation prompt into the agent's context
+                        // so the LLM sees the planning guidance
+                        Some(prompt)
+                    }
+                    inner_loop::NextAction::PlanReady { ref plan, ref risks } => {
+                        eprintln!(
+                            "\x1b[1;34mdeliberation\x1b[0m | plan ready: '{}' ({} steps, {} risks)",
+                            plan.title, plan.steps.len(), risks.len()
+                        );
+                        logger.log_plan(&plan.title, plan.steps.len());
+                        // Persist the plan (P7 fix)
+                        save_plan(&cfg, plan);
+                        None
+                    }
+                    inner_loop::NextAction::SimulationHalt { ref reasons } => {
+                        eprintln!(
+                            "\x1b[1;31mdeliberation\x1b[0m | simulation halt: {:?}",
+                            reasons
+                        );
+                        logger.log_phase("deliberation", "simulation_halt");
+                        None
+                    }
+                    inner_loop::NextAction::Done { ref summary } => {
+                        eprintln!("\x1b[1;34mdeliberation\x1b[0m | {}", summary);
+                        logger.log_phase("deliberation", summary);
+                        None
+                    }
+                }
+            };
+
+            // If deliberation produced a prompt, prepend it to system context
+            if let Some(delib_prompt) = deliberation_context {
+                let current_instructions = agent.config.instructions.clone().unwrap_or_default();
+                agent.config.instructions = Some(format!(
+                    "{}\n\n## Deliberation Context\n\n{}",
+                    current_instructions, delib_prompt
+                ));
+            }
+
+            // ── Phase 4: EXECUTION (agent loop) ──
+            eprintln!("\x1b[1;36mexecution\x1b[0m | starting agent loop");
+            logger.log_phase("execution", "agent_loop_start");
+
             let event_handle = tokio::spawn(async move {
                 while let Some(event) = rx.recv().await {
                     handle_event(event);
@@ -487,11 +642,34 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             let result = agent.run_with_events(kkr_task, Some(tx)).await;
             let _ = event_handle.await;
 
+            // ── Phase 5: REFLECTION (always runs — even on error) ──
+            // P1 fix: save_graph is now in a "finally" position — runs
+            // regardless of success or failure.
+            let success = result.as_ref().map(|o| o.is_success()).unwrap_or(false);
+            let exec_summary = match &result {
+                Ok(o) if o.is_success() => "completed successfully".to_string(),
+                Ok(o) => format!("finished with status: {:?}", o.status),
+                Err(e) => format!("error: {}", e),
+            };
+
+            if cfg.inner.reflection_enabled {
+                let reflection = mos_inner.run_reflection(success, &exec_summary, &mut graph);
+                eprintln!(
+                    "\x1b[1;35mreflection\x1b[0m | {}",
+                    reflection.summary
+                );
+                logger.log_phase("reflection", &reflection.summary);
+            }
+
+            // P1 fix: ALWAYS save graph, even on error
             save_graph(&cfg, &graph);
+
+            // Log final metrics
+            let usage = agent.total_usage();
+            logger.log_tokens(usage.prompt_tokens, usage.completion_tokens);
 
             match result {
                 Ok(output) => {
-                    let usage = agent.total_usage();
                     eprintln!();
                     eprintln!(
                         "\x1b[1;36mmos\x1b[0m | tokens: {} in + {} out = {}",
@@ -509,6 +687,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 Err(e) => {
+                    eprintln!();
+                    eprintln!(
+                        "\x1b[1;36mmos\x1b[0m | tokens: {} in + {} out = {}",
+                        usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
+                    );
                     eprintln!("\x1b[31mmos error:\x1b[0m {}", e);
                     std::process::exit(1);
                 }

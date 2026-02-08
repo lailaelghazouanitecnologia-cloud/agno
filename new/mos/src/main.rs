@@ -1,12 +1,20 @@
 //! mos — autonomous coding agent with deep project knowledge
 //!
 //! Uses KKR (agent loop, providers, events) with native KKR coding tools
-//! (fs, shell, git, search) and a persistent Knowledge Graph to build
-//! deep accumulated understanding of a codebase.
+//! (fs, shell, git, search), a persistent Knowledge Graph, and intelligent
+//! model routing based on roska AST depth levels.
+//!
+//! Architecture:
+//! - **roska** scans project → AST tree with Depth 0-3
+//! - **routing** selects model per depth (cheap for leaves, expensive for architecture)
+//! - **knowledge-graph** accumulates understanding across sessions
+//! - **errordb** tracks recurring errors + loop detection
 
 mod config;
+mod routing;
 
-use config::{CliOverrides, MosConfig};
+use config::{CliOverrides, MosConfig, ModelProfile};
+use routing::Router;
 use knowledge_graph::KnowledgeGraph;
 use knowledge_persist::GraphPersistence;
 use kkr_core::agent::{AgentConfig, AgentEvent, ApprovalPolicy};
@@ -21,7 +29,7 @@ use tokio::sync::mpsc;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-fn system_instructions(graph_context: &str) -> String {
+fn system_instructions(graph_context: &str, model_info: &str) -> String {
     let mut instructions = String::from(
         r#"You are mos, an autonomous coding agent with deep project knowledge.
 
@@ -42,6 +50,12 @@ Be precise and concise. Make minimal, focused changes.
 "#,
     );
 
+    if !model_info.is_empty() {
+        instructions.push_str("\n## Model Routing\n");
+        instructions.push_str(model_info);
+        instructions.push('\n');
+    }
+
     if !graph_context.is_empty() {
         instructions.push_str("\n## Project Knowledge\n\n");
         instructions.push_str(graph_context);
@@ -57,9 +71,10 @@ fn print_usage() {
     eprintln!("  mos <task>              Run a task");
     eprintln!("  mos init                Initialize .agent/ directory");
     eprintln!("  mos graph               Show knowledge graph summary");
+    eprintln!("  mos models              Show configured model profiles");
     eprintln!();
     eprintln!("Options:");
-    eprintln!("  --model <name>          Model name (e.g. gpt-4o, zai-org/GLM-4.7)");
+    eprintln!("  --model <name>          Override default model");
     eprintln!("  --base-url <url>        API base URL");
     eprintln!("  --workspace <path>      Working directory (default: .)");
     eprintln!("  --max-iter <n>          Max iterations (default: 20)");
@@ -70,6 +85,7 @@ fn print_usage() {
 enum Command {
     Init,
     Graph,
+    Models,
     Run {
         task: String,
         overrides: CliOverrides,
@@ -84,12 +100,11 @@ fn parse_args() -> Option<Command> {
         return None;
     }
 
-    // Subcommands
-    if args[0] == "init" {
-        return Some(Command::Init);
-    }
-    if args[0] == "graph" {
-        return Some(Command::Graph);
+    match args[0].as_str() {
+        "init" => return Some(Command::Init),
+        "graph" => return Some(Command::Graph),
+        "models" => return Some(Command::Models),
+        _ => {}
     }
 
     let mut overrides = CliOverrides {
@@ -152,7 +167,21 @@ fn build_tools_capsule(workspace_root: &str) -> kkr_core::capsule::Capsule {
     builder.build()
 }
 
-/// Load the knowledge graph from .agent/memory/graph/ (or create empty).
+/// Build an OpenAI provider from a model profile.
+fn build_provider(profile: &ModelProfile, api_key: &str) -> OpenAI {
+    let mut provider_cfg = OpenAIConfig::new(api_key)
+        .model_name(&profile.model)
+        .max_tokens(profile.max_tokens)
+        .temperature(profile.temperature as f32);
+
+    if let Some(ref url) = profile.base_url {
+        provider_cfg = provider_cfg.base_url(url);
+    }
+
+    OpenAI::new(provider_cfg)
+}
+
+/// Load the knowledge graph from .agent/memory/graph/.
 fn load_graph(cfg: &MosConfig) -> KnowledgeGraph {
     let graph_dir = cfg.graph_dir();
     let persist = GraphPersistence::new(&graph_dir);
@@ -169,10 +198,7 @@ fn load_graph(cfg: &MosConfig) -> KnowledgeGraph {
                 graph
             }
             Err(e) => {
-                eprintln!(
-                    "\x1b[33mwarning\x1b[0m | failed to load knowledge graph: {}",
-                    e
-                );
+                eprintln!("\x1b[33mwarning\x1b[0m | failed to load graph: {}", e);
                 KnowledgeGraph::new()
             }
         }
@@ -186,16 +212,43 @@ fn save_graph(cfg: &MosConfig, graph: &KnowledgeGraph) {
     if graph.node_count() == 0 {
         return;
     }
-
-    let graph_dir = cfg.graph_dir();
-    let persist = GraphPersistence::new(&graph_dir);
-
+    let persist = GraphPersistence::new(cfg.graph_dir());
     if let Err(e) = persist.save(graph) {
-        eprintln!(
-            "\x1b[33mwarning\x1b[0m | failed to save knowledge graph: {}",
-            e
+        eprintln!("\x1b[33mwarning\x1b[0m | failed to save graph: {}", e);
+    }
+}
+
+/// Print model profiles summary.
+fn print_models(cfg: &MosConfig) {
+    eprintln!("\x1b[1;36mmos\x1b[0m | model profiles:\n");
+
+    let routing = &cfg.routing;
+    let depth_map = [
+        ("depth_0 (workspace)", &routing.depth_0),
+        ("depth_1 (module)", &routing.depth_1),
+        ("depth_2 (file)", &routing.depth_2),
+        ("depth_3 (function)", &routing.depth_3),
+        ("knowledge", &routing.knowledge),
+        ("planning", &routing.planning),
+    ];
+
+    for (label, profile_name) in &depth_map {
+        let profile = cfg.get_model(profile_name);
+        let url_info = profile
+            .base_url
+            .as_deref()
+            .unwrap_or("(default)");
+        println!(
+            "  {:22} → {:12} model={} url={}",
+            label, profile_name, profile.model, url_info
         );
     }
+
+    println!();
+    println!(
+        "  loop detection: max_consecutive={} escalate={}",
+        routing.max_consecutive_errors, routing.escalate_on_loop
+    );
 }
 
 #[tokio::main]
@@ -213,15 +266,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 Ok(path) => {
                     eprintln!("\x1b[1;36mmos\x1b[0m | created {}", path.display());
                     eprintln!("\x1b[1;36mmos\x1b[0m | .agent/");
-                    eprintln!("\x1b[1;36mmos\x1b[0m |   agent.toml        — configuration");
+                    eprintln!("\x1b[1;36mmos\x1b[0m |   agent.toml        — configuration + model profiles");
                     eprintln!("\x1b[1;36mmos\x1b[0m |   memory/graph/     — knowledge graph");
+                    eprintln!("\x1b[1;36mmos\x1b[0m |   memory/errors/    — error database");
                     eprintln!("\x1b[1;36mmos\x1b[0m |   sessions/         — session data");
                     eprintln!("\x1b[1;36mmos\x1b[0m |   hooks/            — event hooks");
                     eprintln!("\x1b[1;36mmos\x1b[0m |   logs/             — agent logs");
                     eprintln!();
-                    eprintln!(
-                        "\x1b[1;36mmos\x1b[0m | edit .agent/agent.toml to configure your provider"
-                    );
+                    eprintln!("\x1b[1;36mmos\x1b[0m | edit .agent/agent.toml to configure models and routing");
                 }
                 Err(e) => {
                     eprintln!("\x1b[31mmos error:\x1b[0m {}", e);
@@ -243,12 +295,17 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             }
         }
 
+        Command::Models => {
+            let workspace =
+                std::fs::canonicalize(".").unwrap_or_else(|_| PathBuf::from("."));
+            let cfg = MosConfig::load(&workspace);
+            print_models(&cfg);
+        }
+
         Command::Run { task, overrides } => {
-            // Resolve workspace
             let workspace_path = std::fs::canonicalize(&overrides.workspace)
                 .unwrap_or_else(|_| overrides.workspace.clone());
 
-            // Load config: .agent/agent.toml + CLI overrides
             let mut cfg = MosConfig::load(&workspace_path);
             cfg.apply_overrides(&overrides);
 
@@ -263,23 +320,17 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
             let workspace_str = workspace_path.to_string_lossy().to_string();
 
+            // Initialize router (loop detection + model selection)
+            let _router = Router::new(&cfg);
+
             // Load knowledge graph
             let graph = load_graph(&cfg);
             let graph_context = graph.render_map();
 
-            // Build provider
-            let mut provider_cfg = OpenAIConfig::new(&api_key);
-            if let Some(ref model) = cfg.model {
-                provider_cfg = provider_cfg.model_name(model);
-            }
-            if let Some(ref url) = cfg.base_url {
-                provider_cfg = provider_cfg.base_url(url);
-            }
-            provider_cfg = provider_cfg
-                .max_tokens(cfg.max_tokens)
-                .temperature(cfg.temperature as f32);
-
-            let provider = OpenAI::new(provider_cfg);
+            // Select the planning model for the initial run
+            // (individual sub-tasks will use depth-appropriate models later)
+            let planning_profile = cfg.model_for_planning();
+            let provider = build_provider(planning_profile, &api_key);
 
             // Build agent
             let approval = match cfg.approval.as_str() {
@@ -288,7 +339,16 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 _ => ApprovalPolicy::SafeOnly,
             };
 
-            let instructions = system_instructions(&graph_context);
+            let model_info = format!(
+                "Using '{}' for planning. Depth routing: d0={} d1={} d2={} d3={}",
+                planning_profile.model,
+                cfg.routing.depth_0,
+                cfg.routing.depth_1,
+                cfg.routing.depth_2,
+                cfg.routing.depth_3,
+            );
+
+            let instructions = system_instructions(&graph_context, &model_info);
             let agent_config = AgentConfig::new("mos")
                 .with_instructions(&instructions)
                 .with_max_iterations(cfg.max_iterations)
@@ -299,19 +359,26 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             let workspace = Workspace::new(camino::Utf8PathBuf::from(&workspace_str));
             let mut agent = Agent::new(agent_config, workspace, Box::new(provider));
 
-            // Add native coding tools
             let capsule = build_tools_capsule(&workspace_str);
             agent.add_capsule(capsule);
 
-            // Run with event streaming
             let (tx, mut rx) = mpsc::channel::<AgentEvent>(256);
             let kkr_task = Task::new(&task);
 
+            // Print startup info
             eprintln!("\x1b[1;36mmos\x1b[0m v{}", VERSION);
             eprintln!("\x1b[1;36mmos\x1b[0m | workspace: {}", workspace_str);
-            if let Some(ref m) = cfg.model {
-                eprintln!("\x1b[1;36mmos\x1b[0m | model: {}", m);
-            }
+            eprintln!(
+                "\x1b[1;36mmos\x1b[0m | model: {} (planning)",
+                planning_profile.model
+            );
+            eprintln!(
+                "\x1b[1;36mmos\x1b[0m | routing: d0={} d1={} d2={} d3={}",
+                cfg.routing.depth_0,
+                cfg.routing.depth_1,
+                cfg.routing.depth_2,
+                cfg.routing.depth_3,
+            );
             if graph.node_count() > 0 {
                 eprintln!(
                     "\x1b[1;35mknowledge\x1b[0m | {} nodes in context",
@@ -321,18 +388,15 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             eprintln!("\x1b[1;36mmos\x1b[0m | task: {}", task);
             eprintln!();
 
-            // Event listener
             let event_handle = tokio::spawn(async move {
                 while let Some(event) = rx.recv().await {
                     handle_event(event);
                 }
             });
 
-            // Run
             let result = agent.run_with_events(kkr_task, Some(tx)).await;
             let _ = event_handle.await;
 
-            // Save graph (in case it was modified)
             save_graph(&cfg, &graph);
 
             match result {
